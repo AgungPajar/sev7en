@@ -73,6 +73,14 @@ button:active{transform:translateY(1px)}
 .btn-ghost{background:rgba(148,163,184,.1);color:#cbd5e1;border:1px solid var(--line)}
 .btn-ghost:hover{background:rgba(148,163,184,.18)}
 .btn-green{background:linear-gradient(135deg,#22c55e,#15803d);color:#fff}
+.btn-red{background:rgba(239,68,68,.14);color:#f87171;border:1px solid rgba(239,68,68,.38)}
+.btn-red:hover{background:rgba(239,68,68,.24)}
+.btn-end{background:linear-gradient(135deg,#f59e0b,#b45309);color:#fff}
+.result-banner{display:none;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 18px;padding:16px 18px;border-radius:14px;background:linear-gradient(135deg,rgba(251,191,36,.16),rgba(245,158,11,.06));border:1px solid rgba(251,191,36,.45)}
+.result-banner .trophy{font-size:30px;line-height:1}
+.result-banner .who{font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:#fbbf24;line-height:1.2}
+.result-banner .why{font-size:12.5px;color:#cbd5e1;font-weight:600}
+.result-banner .score{margin-left:auto;font-weight:900;color:#f8fafc;font-variant-numeric:tabular-nums;font-size:15px}
 .row{display:flex;gap:14px;flex-wrap:wrap}
 .f1{flex:1 1 220px}
 .err{color:#f87171;font-weight:600;font-size:13px;margin-top:8px;display:none}
@@ -192,6 +200,15 @@ body.spec-open{overflow:hidden}
         <span class="badge-status badge-lobby" id="statusBadge">Lobby</span>
       </div>
 
+      <div class="result-banner" id="resultBanner">
+        <div class="trophy" id="resultTrophy">🏆</div>
+        <div>
+          <div class="who" id="resultWho">—</div>
+          <div class="why" id="resultWhy">—</div>
+        </div>
+        <div class="score" id="resultScore"></div>
+      </div>
+
       <div class="room-hero">
         <div class="code-box">
           <div class="lbl"><span data-lucide="key-round" style="width:13px;height:13px"></span> Kode Room</div>
@@ -203,6 +220,8 @@ body.spec-open{overflow:hidden}
             <button class="btn-ghost" onclick="copyCode()"><span data-lucide="copy"></span> Salin Kode</button>
             <button class="btn-ghost" onclick="copyLink()"><span data-lucide="link"></span> Salin Link</button>
             <button class="btn-ghost" id="btnWatch" onclick="openSpectator()"><span data-lucide="eye"></span> 🔴 Tonton Live</button>
+            <button class="btn-ghost" id="btnEnd" style="display:none" onclick="endMatchNow()"><span data-lucide="flag"></span> AKHIRI &amp; UMUMKAN PEMENANG</button>
+            <button class="btn-ghost btn-red" id="btnDelete" onclick="deleteRoom()"><span data-lucide="trash-2"></span> HAPUS ROOM</button>
             <button class="btn-green" id="btnStart" style="margin-left:auto"><span data-lucide="play"></span> MULAI MABAR</button>
           </div>
           <p class="err" id="errStart"></p>
@@ -257,7 +276,7 @@ const WS_URLS = (()=>{
   return urls.filter((u,i)=>urls.indexOf(u)===i);
 })();
 
-let ws=null, roomCode=null, isHost=false, teams=[];
+let ws=null, roomCode=null, isHost=false, teams=[], lastResult=null;
 const SPEC_PASS_KEY='sev7en-admin-pass';
 
 function setErr(id,msg){
@@ -272,6 +291,78 @@ function connInfo(text, ok){
   el.style.display='flex';
   el.className='conn'+(ok?'':' red');
   el.textContent = ok ? ('✓ '+text) : ('✗ '+text);
+}
+
+// ===== Status room, tombol, dan layar hasil =====
+function setBadge(kind,text){
+  const sb=document.getElementById('statusBadge');
+  if(!sb) return;
+  sb.className='badge-status '+(kind==='play'?'badge-play':kind==='end'?'badge-end':'badge-lobby');
+  sb.textContent=text;
+}
+function setStartButton(mode){
+  const b=document.getElementById('btnStart');
+  if(b){
+    b.disabled = mode==='playing';
+    b.textContent = mode==='playing' ? '⏳ SEDANG BERMAIN' : mode==='again' ? '🔁 MAIN LAGI' : '▶ MULAI MABAR';
+  }
+  const end=document.getElementById('btnEnd');
+  if(end) end.style.display = mode==='playing' ? 'inline-flex' : 'none';
+}
+function clearResult(){
+  lastResult=null;
+  const banner=document.getElementById('resultBanner');
+  if(banner) banner.style.display='none';
+}
+function showResult(m){
+  if(!m || typeof m!=='object' || !(Array.isArray(m.teams)||m.winner||m.tied)) return false;
+  lastResult=m;
+  const banner=document.getElementById('resultBanner');
+  if(!banner) return true;
+  const trophy=document.getElementById('resultTrophy');
+  const who=document.getElementById('resultWho');
+  const why=document.getElementById('resultWhy');
+  const score=document.getElementById('resultScore');
+  const reason = m.reason==='time' ? 'Waktu habis' : m.reason==='host' ? 'Diakhiri host' : 'Pertandingan selesai';
+  let trophyText='🏁', whoText='SELESAI', scoreText='';
+  if(m.tied && Array.isArray(m.winners) && m.winners.length>1){
+    trophyText='🤝';
+    whoText='SERI — '+m.winners.map(t=>t.name).join(' · ');
+  } else if(m.winner){
+    trophyText='🏆';
+    whoText=m.winner.name+' MENANG!';
+    scoreText=(m.winner.score||0)+' pts · '+((m.winner.floor||0)*100)+' m';
+  }
+  if(trophy) trophy.textContent=trophyText;
+  if(who) who.textContent=whoText;
+  if(why) why.textContent=reason+' · Ronde '+(m.round||1)+' · lobby siap dipakai lagi';
+  if(score) score.textContent=scoreText;
+  banner.style.display='flex';
+  setBadge('end','🏆 Selesai — '+(m.winner ? m.winner.name : (m.tied ? 'Seri' : 'Selesai')));
+  setStartButton('again');
+  return true;
+}
+function resetRoomUI(){
+  clearResult();
+  setStartButton('lobby');
+  setBadge('lobby','Lobby');
+  const roomCard=document.getElementById('roomCard'); if(roomCard) roomCard.style.display='none';
+  const login=document.getElementById('loginCard'); if(login) login.style.display='block';
+  const lbWrap=document.getElementById('lbWrap'); if(lbWrap) lbWrap.style.display='none';
+  const lb=document.getElementById('lb'); if(lb) lb.innerHTML='';
+  roomCode=null; isHost=false; teams=[];
+  closeSpectator();
+}
+function renderLeaderboard(list){
+  const lbWrap=document.getElementById('lbWrap');
+  if(lbWrap) lbWrap.style.display='block';
+  const lb=document.getElementById('lb');
+  if(!lb) return;
+  teams=list||[];
+  lb.innerHTML=teams.map((t,i)=>{
+    const medal=i===0?'<span style="color:#fbbf24">🥇</span>':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+    return `<div class="team-item ${i===0?'lb-top':''}"><span class="rank">${medal}</span><span class="nm">${t.name}</span><span class="pts">${t.score}</span></div>`;
+  }).join('') || '<div class="empty">Belum ada data.</div>';
 }
 
 function connectWS(onOpen){
@@ -308,38 +399,57 @@ function connectWS(onOpen){
     let m; try{ m=JSON.parse(ev.data);}catch{return;}
     if(m.type==='room_created'){
       roomCode=m.code; isHost=true;
+      clearResult();
+      setStartButton('lobby');
       document.getElementById('codeEl').textContent=roomCode.split('').join(' ');
       document.getElementById('roomCard').style.display='block';
-      document.getElementById('statusBadge').className='badge-status badge-lobby';
-      document.getElementById('statusBadge').textContent='Lobby';
+      document.getElementById('loginCard').style.display='block';
+      setBadge('lobby','Lobby');
       setErr('errCreate','');
       renderTeams(m.room.teams);
       window.scrollTo({top:0,behavior:'smooth'});
     } else if(m.type==='room_update'){
-      renderTeams(m.room.teams);
+      if(m.room){ teams=m.room.teams||[]; renderTeams(teams); }
+      if(m.room && m.room.status==='playing') setBadge('play','▶ Sedang bermain');
+      else if(!lastResult) setBadge('lobby','Lobby');
     } else if(m.type==='leaderboard'){
-      teams=m.teams||[];
-      document.getElementById('lbWrap').style.display='block';
-      const lb=document.getElementById('lb');
-      lb.innerHTML=teams.map((t,i)=>{
-        const medal=i===0?'<span style="color:#fbbf24">🥇</span>':i===1?'🥈':i===2?'🥉':(i+1)+'.';
-        return `<div class="team-item ${i===0?'lb-top':''}"><span class="rank">${medal}</span><span class="nm">${t.name}</span><span class="pts">${t.score}</span></div>`;
-      }).join('') || '<div class="empty">Belum ada data.</div>';
+      renderLeaderboard(m.teams||[]);
     } else if(m.type==='game_start'){
-      document.getElementById('statusBadge').className='badge-status badge-play';
-      document.getElementById('statusBadge').textContent='▶ Sedang bermain';
+      clearResult();
+      setBadge('play','▶ Sedang bermain');
+      setStartButton('playing');
+      // Skor ronde sebelumnya sudah direset server; kosongkan leaderboard lama
+      // sampai score_update pertama ronde baru datang.
+      if(teams.length) renderLeaderboard(teams);
     } else if(m.type==='game_end'){
-      document.getElementById('statusBadge').className='badge-status badge-end';
-      document.getElementById('statusBadge').textContent='■ Selesai';
+      if(!showResult(m)){
+        // Server lama: game_end tanpa data pemenang tetap harus menandai selesai.
+        setBadge('end','🏆 Selesai');
+        setStartButton('again');
+      }
+      if(Array.isArray(m.teams)) renderLeaderboard(m.teams);
+      setErr('errStart','');
+    } else if(m.type==='room_deleted'){
+      connInfo('Room dihapus. Buat room baru untuk sesi berikutnya.', true);
+      resetRoomUI();
+      setErr('errStart','');
     } else if(m.type==='rejoined_host'){
       roomCode=m.room.code; isHost=true;
       document.getElementById('roomCard').style.display='block';
+      document.getElementById('loginCard').style.display='block';
       document.getElementById('codeEl').textContent=roomCode.split('').join(' ');
       renderTeams(m.room.teams);
-      const sb=document.getElementById('statusBadge');
-      const playing=m.room.status==='playing';
-      sb.className='badge-status '+(playing?'badge-play':'badge-lobby');
-      sb.textContent=playing?'▶ Sedang bermain':'Lobby';
+      if(m.lastResult && m.room.status!=='playing'){
+        showResult(m.lastResult);
+        if(Array.isArray(m.lastResult.teams)) renderLeaderboard(m.lastResult.teams);
+      } else if(m.room.status==='playing'){
+        setBadge('play','▶ Sedang bermain');
+        setStartButton('playing');
+      } else {
+        clearResult();
+        setBadge('lobby','Lobby');
+        setStartButton('lobby');
+      }
       connInfo('Tersambung kembali ke room '+roomCode, true);
     } else if(m.type==='error'){
       setErr('errCreate',m.message);
@@ -377,9 +487,24 @@ document.getElementById('btnCreate').onclick=()=>{
 };
 
 document.getElementById('btnStart').onclick=()=>{
+  const btn=document.getElementById('btnStart');
+  if(btn && btn.disabled) return;
   if(!ws || ws.readyState!==1) return;
+  setErr('errStart','');
   ws.send(JSON.stringify({type:'start_game'}));
 };
+
+function endMatchNow(){
+  if(!ws || ws.readyState!==1 || !roomCode) return;
+  if(!confirm('Akhiri pertandingan sekarang dan umumkan pemenang dari skor terakhir?')) return;
+  ws.send(JSON.stringify({type:'end_game'}));
+}
+
+function deleteRoom(){
+  if(!ws || ws.readyState!==1 || !roomCode) return;
+  if(!confirm('Hapus room '+roomCode+'? Semua tim akan keluar dan kode ini tidak bisa dipakai lagi. Pertandingan yang sedang berjalan ikut dihentikan.')) return;
+  ws.send(JSON.stringify({type:'delete_room'}));
+}
 
 function copyCode(){ if(roomCode && navigator.clipboard) navigator.clipboard.writeText(roomCode).then(()=>alert('Kode disalin: '+roomCode)); else if(roomCode) alert('Kode: '+roomCode); }
 function copyLink(){

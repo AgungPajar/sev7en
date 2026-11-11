@@ -11,8 +11,12 @@ import {
   CODE_CHARS,
   MAX_TEAMS,
   ROOM_TTL_MS,
+  MATCH_GRACE_MS,
   genCode,
   roomPublic,
+  publicTeam,
+  rankTeams,
+  matchResult,
   broadcast,
   cleanupRooms,
   sanitizePlayerState,
@@ -21,7 +25,7 @@ import {
   RoomManager,
 } from './room-manager.js';
 
-export { PORT, ADMIN_PASSWORD, CODE_CHARS, MAX_TEAMS, ROOM_TTL_MS, genCode, roomPublic, broadcast, cleanupRooms, sanitizePlayerState, remainingSeconds, remainingMs, RoomManager };
+export { PORT, ADMIN_PASSWORD, CODE_CHARS, MAX_TEAMS, ROOM_TTL_MS, MATCH_GRACE_MS, genCode, roomPublic, publicTeam, rankTeams, matchResult, broadcast, cleanupRooms, sanitizePlayerState, remainingSeconds, remainingMs, RoomManager };
 
 export function createVsServer(options = {}) {
   const config = {
@@ -68,6 +72,7 @@ export function createVsServer(options = {}) {
 
   function close() {
     clearInterval(cleanupTimer);
+    manager.dispose();
     return new Promise((resolve) => {
       for (const client of wss.clients) { try { client.terminate(); } catch {} }
       wss.close(() => {

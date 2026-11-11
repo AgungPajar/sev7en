@@ -12,8 +12,10 @@ jalan offline.
 Ada dua mode: **solo** (satu perangkat) dan **mabar/VS** (maksimal 10 tim, satu kode
 room, leaderboard live). Panel admin juga punya mode **tonton live** (spectator):
 satu kamera per tim ditampilkan sekaligus, lengkap dengan skor dan status
-online/offline. Seluruh project berjalan **tanpa database** — state room hanya di
-memori proses server.
+online/offline. Di akhir setiap ronde server mengumumkan **pemenang resmi +
+klasemen**, lalu room kembali ke lobby: host bisa memakai kode yang sama untuk
+ronde berikutnya (**MAIN LAGI**) atau mematikan kodenya (**HAPUS ROOM**). Seluruh
+project berjalan **tanpa database** — state room hanya di memori proses server.
 
 - **Stack:** HTML + Canvas 2D dengan renderer 3D software buatan sendiri (vanilla JS,
   tanpa build step) + satu server WebSocket.
@@ -30,7 +32,7 @@ sev7en/
 ├── game.html                   # Game utama + mode mabar (VS)
 ├── star_pou_vs.html            # Harus identik dengan game.html (dijaga test)
 ├── star_pou_sky_climber.html   # Build solo tanpa blok VS
-├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard, tonton live
+├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard, hasil/pemenang, main lagi, hapus room, tonton live
 ├── design/                     # Aset/eksperimen desain (disajikan di /design/)
 ├── tools/
 │   ├── 3d-engine-spec.md       # Spesifikasi kerja renderer 3D (internal)
@@ -42,7 +44,7 @@ sev7en/
 │   ├── server.js               # Adapter Node: WS saja (fallback)
 │   ├── room-manager.js         # Logika room/protokol (dipakai kedua adapter)
 │   ├── config.js               # PORT & ADMIN_PASSWORD dari environment
-│   └── server.bun.test.js      # Test integrasi Bun (19 test)
+│   └── server.bun.test.js      # Test integrasi Bun (21 test)
 ├── docs/                       # Dokumentasi rinci (lihat bagian akhir)
 ├── tests/                      # Unit test Node (node:test)
 ├── Dockerfile / docker-compose.yml
@@ -73,7 +75,7 @@ Satu proses ini sudah menyajikan file game **dan** WebSocket. Tidak ada `npm ins
 | --- | --- |
 | `bun run start` | Produksi. Pakai ini saat bermain. |
 | `bun run dev` | Watch mode; server restart saat file berubah. **Jangan saat bermain** — room hilang. |
-| `bun run test:bun` | Test integrasi server (19 test). |
+| `bun run test:bun` | Test integrasi server (21 test). |
 | `bun run start:node` | Jalankan adapter Node (WS saja). |
 
 ### Opsi B — Docker
@@ -132,7 +134,7 @@ PORT=3001 ADMIN_PASSWORD=rahasia bun run start
 | Landing | `/` | Tiga pilihan: solo, gabung room, admin |
 | Game + VS | `/game.html` | Mode solo dan mabar |
 | Game versi solo | `/star_pou_sky_climber.html` | Tanpa blok VS |
-| Panel admin | `/admin/` | Buat room, lihat tim, leaderboard |
+| Panel admin | `/admin/` | Buat room, lihat tim, leaderboard, pemenang, main lagi, hapus room |
 | Gabung via link | `/game.html?code=ABC123#join` | Dialog join terbuka, kode terisi |
 | Gabung otomatis | `/game.html?code=ABC123&team=NAMA#join` | Kode + nama langsung join |
 | Tonton live (spectator) | `/game.html?code=ABC123&spectate=1` | Butuh password admin; grid kamera semua tim |
@@ -190,9 +192,11 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    room itu) → server membalas `joined` dan menyiarkan `room_update` ke host +
    semua tim, sehingga semua saling melihat.
 5. Selama `lobby`, tim baru masih boleh join. Setelah host menekan
-   **MULAI MABAR**, join ditolak (`Room sudah mulai`).
-6. **Host** klik **MULAI MABAR** → server set status `playing`, lalu menyiarkan
-   `game_start{materi, duration, serverTime}` ke **semua** client sekaligus.
+   **MULAI MABAR**, join ditolak (`Room sudah mulai`) sampai pertandingan berakhir.
+6. **Host** klik **MULAI MABAR** → server set status `playing`, menaikkan `round`,
+   mereset skor/telemetri semua tim, lalu menyiarkan
+   `game_start{materi, duration, serverTime, remaining, remainingMs, round}` ke
+   **semua** client sekaligus.
 7. Semua client memakai materi + durasi dari host (bukan pilihan lokal), tetapi
    **urutan soal diacak per tim**, jadi tidak ada saling contekan posisi.
 8. **Host** bisa menekan **🔴 Tonton Live** di panel admin setelah room dibuat.
@@ -206,14 +210,22 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    **8×/detik** yang hanya diteruskan server ke observer admin. Server menyimpan
    skor (diklem ≥ 0) lalu menyiarkan `leaderboard` terurut skor menurun ke host +
    semua tim.
-10. Timer berjalan **di masing-masing client** (durasi sama, mulai hampir serentak).
-    Saat habis, client menampilkan hasil akhirnya sendiri; status room tetap
-    `playing` di server.
-11. Room hilang otomatis setelah **2 jam** (TTL, dicek tiap 10 menit) atau saat
-    server restart.
+10. **Akhir ronde** ditentukan server: otomatis pada `duration × 1000 + 1200 ms`
+    (grace 1200 ms untuk menerima `finish` skor akhir), atau saat host menekan
+    **AKHIRI & UMUMKAN PEMENANG** (untuk durasi Tanpa Batas, hanya lewat tombol
+    ini). Server menghitung pemenang dari skor terakhir (skor → `floor` → nama),
+    menyiarkan `game_end{reason, endedAt, round, winner, tied, winners[], teams[]}`,
+    lalu **mengembalikan room ke `lobby`**. Pemain melihat pemenang + klasemen dan
+    menekan **KEMBALI KE LOBI**; spectator admin melihat kartu GAME OVER.
+11. **Host** menekan **🔁 MAIN LAGI** untuk ronde berikutnya di lobby yang sama:
+    `round` bertambah dan skor/floor/streak direset saat `start_game` berikutnya.
+    Tim baru masih bisa join di antara ronde. Room hanya hilang lewat **HAPUS
+    ROOM**, TTL **2 jam**, atau restart server.
 
-> Belum ada tombol "akhiri mabar" di UI. Server sudah mendukung pesan `end_game`
-> dari host (`status → ended`, broadcast `game_end`), tinggal dipakai kalau perlu.
+> Tombol **AKHIRI & UMUMKAN PEMENANG** hanya aktif saat status `playing`.
+> **HAPUS ROOM** mengirim `delete_room`: semua tim/observer menerima
+> `room_deleted`, kode tidak bisa dipakai lagi. Untuk ronde berikutnya, gunakan
+> **MAIN LAGI**, bukan membuat room baru.
 
 ### 3. Alur koneksi WebSocket & reconnect
 
@@ -235,10 +247,18 @@ Client mencoba endpoint berurutan sampai ada yang tersambung:
 ### 4. Siklus status room
 
 ```
-create_room ──► lobby ──start_game──► playing ──end_game──► ended
-                  │                      │
-                  └── join_room (≤10)    └── score_update / finish / rejoin
-                                     TTL 2 jam ──► dihapus
+create_room ──► lobby ──start_game (round+1, reset skor)──► playing
+                  ▲                                            │
+                  │                                            ├─ score_update / player_state
+                  │                                            ├─ finish (saat grace)
+                  │                                            ├─ end_game (host) ─┐
+                  │                                            └─ timer server    ─┤
+                  │                                                                 ▼
+                  └──────────── game_end (pemenang) + room_update ◄──── _finishMatch
+                  │
+                  ├── join_room (≤10, hanya saat lobby)
+                  ├── delete_room (host) ──► room_deleted, kode mati
+                  └── TTL 2 jam / restart server ──► dihapus
 ```
 
 ---
@@ -251,31 +271,36 @@ Semua pesan JSON, satu field `type`.
 | --- | --- |
 | `create_room` | `{adminPassword, materi, duration}` → `room_created{code, room}` |
 | `join_room` | `{code, teamName}` → `joined{code, teamId, room}` |
-| `rejoin` | `{code, teamId}` → `rejoined{room}` (+ `game_start` bila sedang main) |
-| `rejoin_host` | `{code, adminPassword}` → `rejoined_host{room}` |
-| `start_game` | Host saja → broadcast `game_start` |
+| `rejoin` | `{code, teamId}` → `rejoined{room, round, lastResult}` (+ `game_start` bila sedang main) |
+| `rejoin_host` | `{code, adminPassword}` → `rejoined_host{room, round, lastResult}` |
+| `start_game` | Host saja, hanya saat room **bukan** `playing` → ronde baru: `round` +1, reset skor, broadcast `game_start{…, round}` |
 | `score_update` | `{score, floor, streak}` → broadcast `leaderboard` |
-| `finish` | Skor akhir tim → broadcast `leaderboard` |
-| `end_game` | Host saja → broadcast `game_end` |
-| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, remaining, remainingMs, observers}` + snapshot telemetri tiap tim |
+| `finish` | Skor akhir tim saat timer lokal habis (hanya saat `playing`) → broadcast `leaderboard` |
+| `end_game` | Host saja, hanya saat `playing` → hitung pemenang, broadcast `game_end` |
+| `delete_room` | Host saja → hapus room, broadcast `room_deleted` |
+| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, remaining, remainingMs, round, lastResult, observers}` + snapshot telemetri tiap tim |
 | `spectate_leave` | Lepas observer dari room |
 | `player_state` | Tim → `{s}`; server menyimpan snapshot lalu meneruskannya ke observer room itu saja |
 
 | Server → client | Fungsi |
 | --- | --- |
-| `room_created` / `joined` / `rejoined` / `rejoined_host` | Konfirmasi + snapshot room |
-| `room_update` | Daftar tim berubah (join / disconnect) |
-| `game_start` | Mulai bermain: `materi`, `duration`, `serverTime`, `remaining`/`remainingMs` (sisa waktu dari server; `null` = Tanpa Batas) |
+| `room_created` / `joined` / `rejoined` / `rejoined_host` | Konfirmasi + snapshot room (`rejoined`/`rejoined_host` + `round`/`lastResult`) |
+| `room_update` | Daftar tim / status room berubah (join, disconnect, mulai, setelah `game_end`) |
+| `game_start` | Ronde baru: `materi`, `duration`, `serverTime`, `remaining`/`remainingMs` (sisa waktu dari server; `null` = Tanpa Batas), `round` |
 | `leaderboard` | Tim terurut skor menurun |
-| `game_end` | Sesi selesai |
-| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir (+ `remaining`) |
+| `game_end` | Hasil resmi (`MatchResult`): `reason` (`time`/`host`), `endedAt`, `round`, `winner`, `tied`, `winners[]`, `teams[]` ber-`rank` |
+| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir (+ `remaining`, `round`, `lastResult`) |
 | `player_state` | Telemetri tim (`{teamId, s, t}`), relay hanya ke observer |
 | `team_offline` | `{teamId}` — tim putus, pane spectator menandai offline |
-| `error` | `{message}` — mis. `Password admin salah`, `Room penuh (10 tim)` |
+| `room_deleted` | `{code, message}` — room dihapus host; kode tidak bisa dipakai lagi |
+| `error` | `{message}` — mis. `Password admin salah`, `Room penuh (10 tim)`, `Tidak ada pertandingan yang berjalan` |
 
 `remaining`/`remainingMs` adalah jam pertandingan dari server; client mengubahnya
 menjadi deadline lokal sehingga timer pemain, leaderboard, dan admin spectator
-menunjuk detik yang sama (tidak terpengaruh beda jam perangkat/latensi).
+menunjuk detik yang sama (tidak terpengaruh beda jam perangkat/latensi). Server
+mengakhiri pertandingan otomatis pada `duration × 1000 + 1200 ms` (grace 1200 ms
+untuk menerima `finish`), lalu mengembalikan room ke `lobby`; `end_game` dari host
+memakai jalur yang sama.
 
 Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitektur-dan-protokol.md).
 
@@ -288,9 +313,14 @@ Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitekt
 Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
 
 ```bash
-npm test        # 5 file test game/renderer/struktur/landing (361 test), --test-isolation=none
-npm run test:vs-server   # suite server WebSocket Node (68 test, legacy/WIP: 1 gagal pre-existing)
+npm test        # 5 file test game/renderer/struktur/landing (374 test), --test-isolation=none
+npm run test:vs-server   # suite server WebSocket Node (83 test: 82 lulus, 1 gagal pre-existing)
 ```
+
+Total Node: **457 test** — **456 lulus**, **1 gagal pre-existing** di
+`tests/vs-server.test.js` (`supports rejoining a team after a disconnect`, yang
+mengakses `serverTeam.ws._teamId` internal; sengaja tidak diubah). Suite klien
+`tests/game-vs-client.test.js` sendiri berisi **110 test** (semua lulus).
 
 Atau per file:
 
@@ -314,7 +344,7 @@ Test server menjalankan `vs-server` sungguhan di port acak. Cakupan tiap file ad
 ### Test integrasi server (Bun)
 
 ```bash
-bun test vs-server/server.bun.test.js     # 19 test: static, health, WS flow, rejoin
+bun test vs-server/server.bun.test.js     # 21 test: static, health, WS flow, rejoin
 ```
 
 Mencakup: allowlist statis, `/health`, alur room lewat `/ws` dan `/vs-ws`,
@@ -361,7 +391,9 @@ dan [tools/README.md](tools/README.md).
 | Tim saling tidak terlihat | Beda origin/server atau kode salah | Pastikan semua buka URL yang sama |
 | HP tidak bisa join | Link dibagikan berisi `localhost` | Host buka game lewat IP LAN, mis. `http://192.168.100.17:3001/game.html` |
 | Panel admin "Terputus" | Server tidak jalan / diblokir | Cek console browser (F12), pastikan port terbuka |
-| Join ditolak `Room sudah mulai` | Game sudah dimulai | Tunggu room baru dari host |
+| Join ditolak `Room sudah mulai` | Game sudah dimulai | Tunggu ronde selesai (room kembali `lobby`) atau minta host memakai **MAIN LAGI** |
+| Kode tidak bisa dipakai (`Room tidak ditemukan`) | Host menekan **HAPUS ROOM**, TTL 2 jam, atau server restart | Buat room baru; kode lama memang mati permanen |
+| Pemenang belum muncul / layar masih **WAKTU HABIS** | `game_end` belum diterima, atau durasi Tanpa Batas | Tunggu ±1–2 detik; untuk Tanpa Batas tekan **AKHIRI & UMUMKAN PEMENANG** |
 | Room hilang sendiri | Restart server / `bun run dev` / TTL 2 jam | Pakai `bun run start`, buat room baru |
 | Port 3001 dipakai | Proses lama masih jalan | Hentikan proses itu atau ganti `PORT` |
 | Pane **Tonton Live** kosong / “menunggu” | Tim belum mulai atau telemetri belum masuk | Tekan **MULAI MABAR**, tunggu tim menjawab soal pertama |
@@ -378,17 +410,24 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
 
 ## Batasan yang perlu diketahui
 
-- **Tanpa database**: room, tim, dan skor hanya di memori. Restart = reset.
+- **Tanpa database**: room, tim, skor, dan hasil ronde terakhir hanya di memori.
+  Restart = reset.
 - **Renderer software**: dunia 3D dihitung di CPU lalu digambar ke Canvas 2D —
   tanpa WebGL, tekstur, atau bayangan real-time. DPR dibatasi maksimal 2, dan
   kualitas/fps mengikuti kemampuan perangkat. Tampilan 3D tidak mengubah gameplay,
   skor, soal, HUD, maupun protokol VS.
-- **Skor dari client** (client-authoritative, diklem ≥ 0). Cocok untuk kelas /
-  kelompok tertutup, bukan kompetisi publik berhadiah.
+- **Skor dari client** (client-authoritative, diklem ≥ 0). Pemenang dihitung server
+  dari skor ini, jadi cocok untuk kelas / kelompok tertutup, bukan kompetisi publik
+  berhadiah.
+- **Satu lobby, banyak ronde**: setelah `game_end` room kembali ke `lobby`; host
+  memakai **MAIN LAGI** untuk ronde berikutnya (skor direset, `round` bertambah).
+  Tidak ada riwayat skor antar-ronde — `lastResult` hanya menyimpan ronde terakhir.
+- **HAPUS ROOM permanen**: kode room tidak bisa dipakai lagi setelah host menghapus
+  room; semua tim/observer menerima `room_deleted`.
 - **Spectator live** merender beberapa kamera 3D sekaligus di browser admin,
   dibatasi ±30 fps; telemetri 8 Hz diinterpolasi. Bukan rekaman: tutup tab admin
   = tidak ada playback dan riwayat gerakan hilang.
-- **Maksimal 10 tim per room**, join hanya saat `lobby`.
+- **Maksimal 10 tim per room**, join hanya saat `lobby` (termasuk di antara ronde).
 - **Soal hardcoded** di HTML, belum ada CRUD di panel admin →
   [docs/05-menambah-soal.md](docs/05-menambah-soal.md).
 - Panel admin bukan sistem login: halaman publik, tetapi `create_room` butuh
@@ -404,8 +443,8 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
 | --- | --- |
 | [docs/01 · Mulai Cepat](docs/01-mulai-cepat.md) | Prasyarat, dua terminal (Node), peta URL |
 | [docs/02 · Cara Main Solo](docs/02-cara-main-solo.md) | Kontrol, HUD, akhir permainan |
-| [docs/03 · Panel Admin](docs/03-panel-admin.md) | Password, buat room, mulai mabar |
-| [docs/04 · Mabar Multiplayer](docs/04-mabar-multiplayer.md) | Alur tim, aturan, reconnect |
+| [docs/03 · Panel Admin](docs/03-panel-admin.md) | Password, buat room, mulai mabar, hasil/pemenang, main lagi, hapus room, tonton live |
+| [docs/04 · Mabar Multiplayer](docs/04-mabar-multiplayer.md) | Alur tim, aturan, akhir permainan & pemenang, ronde berulang, hapus room, reconnect |
 | [docs/05 · Menambah Soal](docs/05-menambah-soal.md) | Struktur bank soal |
 | [docs/06 · Mekanik & Skor](docs/06-mekanik-dan-skor.md) | Rumus poin, streak, zona |
 | [docs/07 · Deploy VPS](docs/07-deploy-vps.md) | PM2, Nginx, WSS |

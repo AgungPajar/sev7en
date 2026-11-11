@@ -6,14 +6,18 @@ mode tonton untuk admin:
 
 - **Solo** — latihan naik tangga awan di satu perangkat.
 - **Mabar / VS** — maksimal **10 tim** bertanding lewat kode room 6 karakter, dengan
-  leaderboard live.
+  leaderboard live. Satu lobby bisa dipakai **berkali-kali**: setelah ronde selesai,
+  pemenang resmi diumumkan dan room kembali ke lobby untuk ronde berikutnya.
 - **Tonton live (spectator)** — admin memantau semua tim sekaligus dari panel
-  admin: satu kamera 3D per tim, lengkap dengan skor dan status online.
+  admin: satu kamera 3D per tim, lengkap dengan skor dan status online, plus kartu
+  GAME OVER berisi pemenang dan klasemen saat ronde selesai.
 
 > Catatan status: world game kini dirender dalam **3D software** (Canvas 2D,
 > tanpa WebGL/dependency) — lihat [10 · Renderer 3D](10-renderer-3d.md). Gameplay,
-> skor, HUD, dan pesan VS lama tidak berubah. Suite unit test Node `tests/` lengkap;
-> cara menjalankan dan cakupannya ada di [tests/README.md](../tests/README.md).
+> skor, HUD, dan pesan VS lama tidak berubah; tambahan terbaru adalah pemenang
+> resmi per ronde (`game_end`), lobby yang bisa dipakai ulang (**MAIN LAGI**), dan
+> **HAPUS ROOM**. Suite unit test Node `tests/` lengkap; cara menjalankan dan
+> cakupannya ada di [tests/README.md](../tests/README.md).
 
 ---
 
@@ -23,8 +27,8 @@ mode tonton untuk admin:
 |---|---|---|
 | [01 · Mulai Cepat](01-mulai-cepat.md) | Prasyarat, cara menjalankan di lokal, peta URL | Developer baru |
 | [02 · Cara Main Solo](02-cara-main-solo.md) | Alur menu solo, kontrol, HUD, akhir permainan | Guru / siswa / operator |
-| [03 · Panel Admin](03-panel-admin.md) | Password, buat room, bagikan kode, mulai mabar, memantau skor, tonton live | Admin / host |
-| [04 · Mabar Multiplayer](04-mabar-multiplayer.md) | Alur tim, join lobby, aturan, spectator, reconnect, batasan | Admin + tim |
+| [03 · Panel Admin](03-panel-admin.md) | Password, buat room, bagikan kode, mulai mabar, memantau skor, tonton live, hasil/pemenang, main lagi, hapus room | Admin / host |
+| [04 · Mabar Multiplayer](04-mabar-multiplayer.md) | Alur tim, join lobby, aturan, spectator, akhir permainan & pemenang, ronde berulang, hapus room, reconnect, batasan | Admin + tim |
 | [05 · Menambah Soal](05-menambah-soal.md) | Struktur bank soal, cara menambah, topik baru, checklist | Developer / guru |
 | [06 · Mekanik & Skor](06-mekanik-dan-skor.md) | Rumus poin, streak, zona ketinggian, timer | Semua |
 | [07 · Deploy VPS](07-deploy-vps.md) | PM2, Nginx, WSS, environment, verifikasi | DevOps / maintainer |
@@ -70,8 +74,14 @@ Ringkasan alur permainan (solo, mabar, reconnect) ada di
 3. Di perangkat tim, buka link tersebut, isi **nama tim**, lalu masuk lobby.
 4. Setelah semua tim join, klik **MULAI MABAR** di panel admin.
 5. Skor dan posisi tim tampil di leaderboard live.
-6. Klik **🔴 Tonton Live** di panel admin untuk menonton semua tim sekaligus
-   (satu kamera per tim). Detail kontrol dan troubleshooting ada di
+6. Saat timer habis (atau host menekan **AKHIRI & UMUMKAN PEMENANG**), server
+   mengumumkan **pemenang + klasemen resmi**. Room kembali ke lobby; skor tidak
+   hilang dari layar sampai ronde berikutnya dimulai.
+7. Klik **🔁 MAIN LAGI** untuk ronde berikutnya dengan kode room dan tim yang sama,
+   atau **🗑 HAPUS ROOM** untuk mengakhiri kode secara permanen.
+8. Klik **🔴 Tonton Live** di panel admin untuk menonton semua tim sekaligus
+   (satu kamera per tim) dan melihat kartu GAME OVER saat ronde selesai. Detail
+   kontrol dan troubleshooting ada di
    [03 · Panel Admin §6](03-panel-admin.md).
 
 ---
@@ -85,7 +95,13 @@ Ringkasan alur permainan (solo, mabar, reconnect) ada di
 - **Skor dikirim oleh browser tim** (client-authoritative). Cocok untuk kelas /
   kelompok tertutup, bukan kompetisi publik dengan hadiah.
 - **Maksimal 10 tim per room**, dan tim hanya bisa join saat status room masih
-  **lobby**.
+  **lobby** — termasuk di antara dua ronde.
+- **Satu lobby bisa dipakai berkali-kali.** Setelah pertandingan selesai, room
+  kembali ke lobby (bukan dihapus) dan host memakai **MAIN LAGI** untuk ronde
+  berikutnya. Kode room hanya mati lewat **HAPUS ROOM**, TTL 2 jam, atau restart
+  server.
+- **Pemenang dihitung server** dari skor terakhir: skor tertinggi, lalu `floor`,
+  lalu nama. Hasil resmi dikirim ke pemain, host, dan spectator lewat `game_end`.
 - Panel admin bukan sistem login: halaman bisa dibuka siapa saja, tetapi membuat
   room memerlukan password yang benar.
 

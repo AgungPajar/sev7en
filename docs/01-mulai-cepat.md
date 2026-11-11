@@ -113,7 +113,7 @@ Lalu buka `http://localhost:4173/`.
 |---|---|---|
 | Landing | `/` | Tiga pilihan: solo, gabung room, admin |
 | Solo / game | `/game.html` | Game utama; juga menangani join mabar |
-| Panel admin | `/admin/` | Buat room & pantau leaderboard |
+| Panel admin | `/admin/` | Buat room, pantau leaderboard, hasil/pemenang, main lagi, hapus room |
 | Gabung via link | `/game.html?code=ABC123#join` | Buka dialog join, kode terisi |
 | Gabung otomatis | `/game.html?code=ABC123&team=NAMA#join` | Kode + nama → langsung join |
 | Health check | `http://localhost:3001/health` | Status server + jumlah room |
@@ -141,6 +141,10 @@ Di production, client memakai path `wss://domain-anda/vs-ws` (lihat
    leaderboard muncul.
 5. **Join ditolak** — coba join lagi setelah game mulai; harus muncul
    `Room sudah mulai`.
+6. **Akhir ronde** — tunggu timer habis atau klik **AKHIRI & UMUMKAN PEMENANG**;
+   pemenang + klasemen harus muncul di tab pemain dan spectator.
+7. **Ronde berikutnya** — klik **🔁 MAIN LAGI**; skor kembali 0, `round` bertambah,
+   dan tim tetap terdaftar. Setelah selesai, **HAPUS ROOM** mengakhiri kode.
 
 ---
 
@@ -149,8 +153,10 @@ Di production, client memakai path `wss://domain-anda/vs-ws` (lihat
 - **Stop server**: `Ctrl + C` di terminal server.
 - **Reset semua room**: restart server (`Ctrl + C`, lalu `npm start`). Semua room
   dan skor hilang karena data hanya di memori.
-- **Reset satu room**: tidak ada tombol hapus room. Buat room baru; room lama
-  hilang otomatis setelah 2 jam (TTL) atau saat server restart.
+- **Reset satu room**: host menekan **🗑 HAPUS ROOM** di panel admin (kode tidak
+  bisa dipakai lagi). Untuk ronde berikutnya tanpa menghapus room, gunakan
+  **🔁 MAIN LAGI**. Room juga hilang otomatis setelah 2 jam (TTL) atau saat
+  server restart.
 
 ---
 
