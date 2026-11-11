@@ -123,6 +123,18 @@ reconnect langsung masuk kembali.
 | HP tidak bisa join lewat link `localhost` | Link dibagikan dari host yang membuka `localhost` | Buka game dari host lewat IP LAN, mis. `http://192.168.1.10:3001/game.html` |
 | WS putus saat edit file | `bun run dev` me-restart server | Pakai `bun run start` saat bermain |
 
+## Docker
+
+Alternatif tanpa memasang Bun/Node di mesin: satu image kecil berisi runtime Bun
++ file game + server WS (tanpa dependency npm).
+
+```bash
+docker compose up -d --build
+```
+
+Detail lengkap (ukuran image, env, LAN, healthcheck, troubleshooting):
+lihat [DOCKER.md](DOCKER.md).
+
 ## Runtime Node (fallback)
 
 ```bash

@@ -1,0 +1,34 @@
+name: sev7en
+
+services:
+  game:
+    build:
+      context: .
+    image: sev7en:latest
+    container_name: sev7en
+    restart: unless-stopped
+    init: true
+
+    ports:
+      # HOST_PORT bisa diganti lewat .env / environment, mis. HOST_PORT=8080
+      - "${HOST_PORT:-3001}:3001"
+
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      # Ganti lewat .env atau: ADMIN_PASSWORD=rahasia docker compose up -d
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-sev7en-admin}
+
+    # Server tidak menulis ke disk: room hanya di memori.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+
+    security_opt:
+      - no-new-privileges:true
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

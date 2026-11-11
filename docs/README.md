@@ -28,39 +28,33 @@ game kuis Bahasa Inggris **Sev7en Club**. Game terdiri dari dua mode:
 
 ---
 
-## Mulai cepat (5 menit)
+## Mulai cepat (1 menit)
 
-Butuh **Node.js 18+** dan dua terminal.
-
-**Terminal 1 — server realtime mabar:**
+Cara tercepat: **Bun**, satu proses untuk file statis + WebSocket.
 
 ```bash
-cd vs-server
-npm install
-npm start
+bun run start          # dari root project
 ```
 
-Server berjalan di `http://localhost:3001`, WebSocket di `ws://localhost:3001/ws`.
+Buka `http://localhost:3001/`. Tidak perlu `npm install` dan tidak perlu
+terminal kedua. Alternatif tanpa memasang Bun: `docker compose up -d --build`
+(lihat [DOCKER.md](../DOCKER.md)).
 
-**Terminal 2 — file statis (game & admin):**
+Masih memakai **Node 18+** (dua proses: server WS + server statis)? Ikuti
+[01 · Mulai Cepat](01-mulai-cepat.md).
 
-```bash
-# dari root project
-npx serve . -l 4173
-```
-
-Alternatif tanpa Node: `python -m http.server 4173`.
-
-Lalu buka:
-
-| Halaman | URL lokal |
+| Halaman | URL (Bun / Docker) |
 |---|---|
-| Landing / menu | `http://localhost:4173/` |
-| Game solo | `http://localhost:4173/game.html` |
-| Panel admin | `http://localhost:4173/admin/` |
+| Landing / menu | `http://localhost:3001/` |
+| Game solo + mabar | `http://localhost:3001/game.html` |
+| Panel admin | `http://localhost:3001/admin/` |
+| Health check | `http://localhost:3001/health` |
 
 **Password admin default:** `sev7en-admin`
 (dapat diubah lewat environment `ADMIN_PASSWORD` di server).
+
+Ringkasan alur permainan (solo, mabar, reconnect) ada di
+[README utama](../README.md#alur-permainan).
 
 ### Demo alur mabar
 
@@ -94,9 +88,10 @@ sev7en/
 ├── index.html                  # Landing: solo, gabung room, panel admin
 ├── game.html                   # Game utama + mode mabar (VS)
 ├── star_pou_sky_climber.html   # Versi solo (tanpa blok VS)
-├── star_pou_vs.html            # Duplikat lama game.html
+├── star_pou_vs.html            # Duplikat lama game.html (harus identik)
 ├── admin/index.html            # Panel admin
-├── vs-server/                  # Server WebSocket + PM2
+├── vs-server/                  # Server WebSocket (Bun native / Node + ws)
+├── Dockerfile                  # Image produksi (Bun alpine)
 ├── docs/                       # Dokumentasi ini
 └── tests/                      # WIP — tidak dibahas di sini
 ```

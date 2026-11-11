@@ -1,0 +1,39 @@
+# Konteks build dijaga sekecil mungkin: hanya file yang dibutuhkan runtime.
+# (COPY di Dockerfile juga eksplisit, jadi file lain tidak akan ikut ke image.)
+
+.git
+.gitattributes
+.gitignore
+.github
+.vscode
+.idea
+**/.DS_Store
+
+node_modules
+**/node_modules
+
+# test, dokumen, tooling deploy
+tests
+docs
+**/*.md
+deploy-vs.ps1
+nginx-vs-snippet.conf
+vs-server/*.test.js
+vs-server/ecosystem*.cjs
+vs-server/package*.json
+vs-server/.env
+vs-server/.env.example
+
+# rahasia lokal (Compose membacanya dari host, bukan dari build context)
+.env
+.env.*
+!.env.example
+
+# file docker itu sendiri
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+docker-compose*.yaml
+compose*.yml
+compose*.yaml
+.dockerignore
