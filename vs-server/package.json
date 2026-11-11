@@ -2,5 +2,10 @@
   "name": "sev7en-vs",
   "type": "module",
   "dependencies": { "ws": "^8.17.0" },
-  "scripts": { "start": "node server.js" }
+  "scripts": {
+    "start": "node server.js",
+    "start:bun": "bun run server.bun.js",
+    "dev:bun": "bun --watch server.bun.js",
+    "test:bun": "bun test server.bun.test.js"
+  }
 }

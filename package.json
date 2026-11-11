@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Star-Pou Sky Climber & Star-Pou VS — static games + realtime WebSocket server",
+  "description": "Star-Pou / sev7en game — static HTML + realtime VS server",
   "scripts": {
-    "test": "node --test tests/game-core.test.js tests/game-vs-client.test.js tests/landing.test.js tests/site-structure.test.js tests/vs-server.test.js",
-    "test:game": "node --test tests/game-core.test.js tests/game-vs-client.test.js tests/landing.test.js tests/site-structure.test.js",
-    "test:server": "node --test tests/vs-server.test.js",
-    "test:watch": "node --test --watch tests/game-core.test.js tests/game-vs-client.test.js tests/landing.test.js tests/site-structure.test.js tests/vs-server.test.js"
+    "start": "bun run vs-server/server.bun.js",
+    "dev": "bun --watch vs-server/server.bun.js",
+    "start:node": "node vs-server/server.js",
+    "test:bun": "bun test vs-server/server.bun.test.js"
   },
   "engines": {
     "node": ">=22"

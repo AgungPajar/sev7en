@@ -216,8 +216,20 @@ button:active{transform:translateY(1px)}
 <script>
 (function(){ if(window.lucide) try{ lucide.createIcons(); }catch(e){} })();
 
-const WS_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1')
-  ? 'ws://localhost:3001/ws' : ((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/vs-ws');
+const WS_URLS = (()=>{
+  const proto = location.protocol==='https:' ? 'wss:' : 'ws:';
+  const host = location.hostname;
+  const port = location.port;
+  const urls = [];
+  if(host && port) urls.push(proto+'//'+host+':'+port+'/ws');
+  if(!host || host==='localhost' || host==='127.0.0.1'){
+    urls.push('ws://localhost:3001/ws');
+  } else {
+    if(port) urls.push(proto+'//'+host+':3001/ws');
+    urls.push(proto+'//'+host+'/vs-ws');
+  }
+  return urls.filter((u,i)=>urls.indexOf(u)===i);
+})();
 
 let ws=null, roomCode=null, isHost=false, teams=[];
 
@@ -236,12 +248,36 @@ function connInfo(text, ok){
 }
 
 function connectWS(onOpen){
-  if(ws && ws.readyState===1){ if(onOpen) onOpen(); return; }
-  ws=new WebSocket(WS_URL);
-  ws.onopen=()=>{ connInfo('Terhubung ke server realtime', true); if(onOpen) onOpen(); };
-  ws.onclose=()=>{ connInfo('Terputus. Coba refresh.', false); };
-  ws.onerror=()=>{ connInfo('Error koneksi WS.', false); };
-  ws.onmessage=(ev)=>{
+  if(ws && (ws.readyState===0 || ws.readyState===1)){ if(onOpen) onOpen(); return; }
+  let next=0;
+  const tryNext=()=>{
+    if(next>=WS_URLS.length){ connInfo('Tidak ada endpoint WS yang bisa dihubungi.', false); return; }
+    const url=WS_URLS[next++];
+    const sock=new WebSocket(url);
+    ws=sock;
+    let opened=false;
+    const failTimer=setTimeout(()=>{
+      if(opened) return;
+      try{ sock.close(); }catch(e){}
+      if(ws===sock) ws=null;
+      tryNext();
+    },2500);
+    sock.onopen=()=>{
+      opened=true; clearTimeout(failTimer);
+      connInfo('Terhubung ke server realtime', true);
+      if(isHost && roomCode){
+        const pass=document.getElementById('adminPass');
+        try{ sock.send(JSON.stringify({type:'rejoin_host', code:roomCode, adminPassword: pass?pass.value:''})); }catch(e){}
+      } else if(onOpen) onOpen();
+    };
+    sock.onclose=()=>{
+      clearTimeout(failTimer);
+      if(ws===sock) ws=null;
+      connInfo('Terputus. Coba refresh.', false);
+      if(opened && roomCode) setTimeout(()=>connectWS(),2000);
+    };
+    sock.onerror=()=>{ if(!opened) connInfo('Error koneksi WS.', false); };
+    sock.onmessage=(ev)=>{
     let m; try{ m=JSON.parse(ev.data);}catch{return;}
     if(m.type==='room_created'){
       roomCode=m.code; isHost=true;
@@ -268,11 +304,23 @@ function connectWS(onOpen){
     } else if(m.type==='game_end'){
       document.getElementById('statusBadge').className='badge-status badge-end';
       document.getElementById('statusBadge').textContent='■ Selesai';
+    } else if(m.type==='rejoined_host'){
+      roomCode=m.room.code; isHost=true;
+      document.getElementById('roomCard').style.display='block';
+      document.getElementById('codeEl').textContent=roomCode.split('').join(' ');
+      renderTeams(m.room.teams);
+      const sb=document.getElementById('statusBadge');
+      const playing=m.room.status==='playing';
+      sb.className='badge-status '+(playing?'badge-play':'badge-lobby');
+      sb.textContent=playing?'▶ Sedang bermain':'Lobby';
+      connInfo('Tersambung kembali ke room '+roomCode, true);
     } else if(m.type==='error'){
       setErr('errCreate',m.message);
       setErr('errStart',m.message);
     }
+    };
   };
+  tryNext();
 }
 
 function renderTeams(list){

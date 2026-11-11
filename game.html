@@ -1144,25 +1144,61 @@
 const VS = {
   enabled: false, code: null, teamId: null, teamName: null, isHost: false,
   ws: null, lb: [],
-  getWsUrl(){
+  getWsUrls(){
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = location.hostname;
-    // dev: localhost:3001 ; prod: sev7en.cerap.web.id -> wss://sev7en.cerap.web.id/ws via nginx proxy (fallback port 3001)
-    const isLocal = host === 'localhost' || host === '127.0.0.1';
-    if(isLocal) return 'ws://localhost:3001/ws';
-    return proto + '//' + host + '/vs-ws';
-  }
+    const port = location.port;
+    const urls = [];
+    // same origin (Bun/Node server serves static + WS)
+    if(host && port) urls.push(proto + '//' + host + ':' + port + '/ws');
+    if(!host || host === 'localhost' || host === '127.0.0.1'){
+      // file:// atau static server terpisah -> VS server di 3001
+      urls.push('ws://localhost:3001/ws');
+    } else {
+      // static server di port lain, lalu path produksi nginx
+      if(port) urls.push(proto + '//' + host + ':3001/ws');
+      urls.push(proto + '//' + host + '/vs-ws');
+    }
+    return urls.filter((u,i)=>urls.indexOf(u)===i);
+  },
+  getWsUrl(){ return this.getWsUrls()[0]; }
 };
 
 function vsConnect(){
-  if(VS.ws && VS.ws.readyState===1) return;
-  const url = VS.getWsUrl();
-  const ws = new WebSocket(url);
-  VS.ws = ws;
-  ws.onopen = ()=> console.log('[VS] ws open', url);
-  ws.onclose = ()=> { console.log('[VS] ws closed'); if(VS.enabled && VS.code) setTimeout(vsConnect, 2000); };
-  ws.onerror = ()=> {};
-  ws.onmessage = (ev)=>{
+  if(VS.ws && (VS.ws.readyState===0 || VS.ws.readyState===1)) return;
+  const urls = VS.getWsUrls();
+  let next = 0;
+  const tryNext = ()=>{
+    if(next >= urls.length){ console.warn('[VS] tidak ada endpoint WS yang bisa dihubungi'); return; }
+    const url = urls[next++];
+    const ws = new WebSocket(url);
+    VS.ws = ws;
+    let opened = false;
+    const failTimer = setTimeout(()=>{
+      if(opened) return;
+      try{ ws.close(); }catch(e){}
+      if(VS.ws===ws) VS.ws=null;
+      tryNext();
+    }, 2500);
+    ws.onopen = ()=>{
+      opened = true; clearTimeout(failTimer);
+      console.log('[VS] ws open', url);
+      // pulihkan identitas setelah koneksi putus / server restart
+      try{
+        if(VS.teamId && VS.code) ws.send(JSON.stringify({type:'rejoin', code:VS.code, teamId:VS.teamId}));
+        else if(VS.isHost && VS.code){
+          const pass = document.getElementById('vs-admin-pass');
+          ws.send(JSON.stringify({type:'rejoin_host', code:VS.code, adminPassword: pass?pass.value:''}));
+        }
+      }catch(e){}
+    };
+    ws.onclose = ()=>{
+      clearTimeout(failTimer);
+      if(VS.ws===ws) VS.ws=null;
+      if(opened && (VS.code || VS.teamId || VS.enabled)) setTimeout(vsConnect, 2000);
+    };
+    ws.onerror = ()=> {};
+    ws.onmessage = (ev)=>{
     let msg; try{ msg=JSON.parse(ev.data);}catch{return;}
     if(msg.type==='room_created'){
       VS.code = msg.code; VS.isHost = true;
@@ -1192,6 +1228,15 @@ function vsConnect(){
       if(VS.isHost) renderLobbyHost(msg.room);
       else renderLobbyGuest(msg.room);
       vsShowBar(msg.room);
+    } else if(msg.type==='rejoined'){
+      VS.code = msg.room.code || VS.code;
+      vsShowBar(msg.room);
+      renderLobbyGuest(msg.room);
+      const st=document.getElementById('vs-join-status');
+      if(st) st.textContent='tersambung kembali ('+VS.code+') — menunggu host memulai…';
+    } else if(msg.type==='rejoined_host'){
+      vsShowBar(msg.room);
+      renderLobbyHost(msg.room);
     } else if(msg.type==='game_start'){
       vsHandleGameStart(msg);
     } else if(msg.type==='leaderboard'){
@@ -1206,7 +1251,9 @@ function vsConnect(){
       else alert(msg.message);
       const _bj=document.querySelector('#vs-card-join .vs-btn-primary'); if(_bj){ _bj.textContent='Join Lobby'; _bj.disabled=false; _bj.style.display=''; }
     }
+    };
   };
+  tryNext();
 }
 
 function vsShowBar(room){
@@ -1277,9 +1324,19 @@ window.vsCopyLink = ()=>{
 };
 window.vsCreateRoom = ()=>{
   vsConnect();
+  const errEl=document.getElementById('vs-create-err');
+  let tries=0;
   const send = ()=>{
-    if(VS.ws.readyState!==1) return setTimeout(send,200);
-    VS.ws.send(JSON.stringify({type:'create_room', adminPassword: document.getElementById('vs-admin-pass').value, materi: document.getElementById('vs-materi').value, duration: document.getElementById('vs-duration').value}));
+    if(!VS.ws) vsConnect();
+    if(VS.ws && VS.ws.readyState===1){
+      VS.ws.send(JSON.stringify({type:'create_room', adminPassword: document.getElementById('vs-admin-pass').value, materi: document.getElementById('vs-materi').value, duration: document.getElementById('vs-duration').value}));
+      return;
+    }
+    if(++tries>60){
+      if(errEl){ errEl.textContent='Tidak bisa konek ke server WS — pastikan server sudah jalan.'; errEl.style.display='block'; }
+      return;
+    }
+    setTimeout(send,200);
   };
   setTimeout(send, 300);
 };
@@ -1295,13 +1352,24 @@ window.vsJoinRoom = ()=>{
   errEl.style.display='none';
   errEl.textContent='';
   vsConnect();
+  let tries=0;
   const send=()=>{
-    if(!VS.ws || VS.ws.readyState!==1) return setTimeout(send,200);
-    try{ VS.ws.send(JSON.stringify({type:'join_room', code, teamName: name})); }catch(e){ if(btn){btn.textContent='Join Lobby'; btn.disabled=false;} errEl.textContent='Gagal konek — coba lagi'; errEl.style.display='block';}
+    if(!VS.ws) vsConnect();
+    if(VS.ws && VS.ws.readyState===1){
+      try{ VS.ws.send(JSON.stringify({type:'join_room', code, teamName: name})); }catch(e){ if(btn){btn.textContent='Join Lobby'; btn.disabled=false;} errEl.textContent='Gagal konek — coba lagi'; errEl.style.display='block';}
+      return;
+    }
+    if(++tries>60){
+      if(btn){ btn.textContent='Join Lobby'; btn.disabled=false; }
+      errEl.textContent='Tidak bisa konek ke server WS — pastikan server sudah jalan.';
+      errEl.style.display='block';
+      return;
+    }
+    setTimeout(send,200);
   };
   setTimeout(send,300);
-  // safety re-enable kalau 4 detik gak ada balasan
-  setTimeout(()=>{ if(btn && !VS.teamId){ btn.textContent='Join Lobby'; btn.disabled=false; }}, 4000);
+  // safety re-enable kalau 12 detik gak ada balasan
+  setTimeout(()=>{ if(btn && !VS.teamId){ btn.textContent='Join Lobby'; btn.disabled=false; }}, 12000);
 };
 window.vsStartGame = ()=>{
   if(VS.ws) VS.ws.send(JSON.stringify({type:'start_game'}));
