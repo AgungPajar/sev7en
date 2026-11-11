@@ -1,0 +1,16 @@
+{
+  "name": "sev7en",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Star-Pou / sev7en game — static HTML + realtime VS server",
+  "scripts": {
+    "start": "bun run vs-server/server.bun.js",
+    "dev": "bun --watch vs-server/server.bun.js",
+    "start:node": "node vs-server/server.js",
+    "test:bun": "bun test vs-server/server.bun.test.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
