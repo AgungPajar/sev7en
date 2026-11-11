@@ -10,8 +10,10 @@ tanpa WebGL, tanpa three.js, dan tanpa dependency. Tetap satu file HTML mandiri 
 jalan offline.
 
 Ada dua mode: **solo** (satu perangkat) dan **mabar/VS** (maksimal 10 tim, satu kode
-room, leaderboard live). Seluruh project berjalan **tanpa database** — state room
-hanya di memori proses server.
+room, leaderboard live). Panel admin juga punya mode **tonton live** (spectator):
+satu kamera per tim ditampilkan sekaligus, lengkap dengan skor dan status
+online/offline. Seluruh project berjalan **tanpa database** — state room hanya di
+memori proses server.
 
 - **Stack:** HTML + Canvas 2D dengan renderer 3D software buatan sendiri (vanilla JS,
   tanpa build step) + satu server WebSocket.
@@ -28,7 +30,7 @@ sev7en/
 ├── game.html                   # Game utama + mode mabar (VS)
 ├── star_pou_vs.html            # Harus identik dengan game.html (dijaga test)
 ├── star_pou_sky_climber.html   # Build solo tanpa blok VS
-├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard
+├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard, tonton live
 ├── design/                     # Aset/eksperimen desain (disajikan di /design/)
 ├── tools/
 │   ├── 3d-engine-spec.md       # Spesifikasi kerja renderer 3D (internal)
@@ -133,6 +135,7 @@ PORT=3001 ADMIN_PASSWORD=rahasia bun run start
 | Panel admin | `/admin/` | Buat room, lihat tim, leaderboard |
 | Gabung via link | `/game.html?code=ABC123#join` | Dialog join terbuka, kode terisi |
 | Gabung otomatis | `/game.html?code=ABC123&team=NAMA#join` | Kode + nama langsung join |
+| Tonton live (spectator) | `/game.html?code=ABC123&spectate=1` | Butuh password admin; grid kamera semua tim |
 | WebSocket | `/ws` (lokal), `/vs-ws` (nginx) | Protokol JSON |
 | Health check | `/health` | `{"ok":true,"rooms":N}` |
 
@@ -192,13 +195,21 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    `game_start{materi, duration, serverTime}` ke **semua** client sekaligus.
 7. Semua client memakai materi + durasi dari host (bukan pilihan lokal), tetapi
    **urutan soal diacak per tim**, jadi tidak ada saling contekan posisi.
-8. Selama bermain, tiap client mengirim `score_update{score, floor, streak}`
-   maksimal tiap **400 ms**. Server menyimpan (nilai diklem ≥ 0) lalu menyiarkan
-   `leaderboard` terurut skor menurun ke host + semua tim.
-9. Timer berjalan **di masing-masing client** (durasi sama, mulai hampir serentak).
-   Saat habis, client menampilkan hasil akhirnya sendiri; status room tetap
-   `playing` di server.
-10. Room hilang otomatis setelah **2 jam** (TTL, dicek tiap 10 menit) atau saat
+8. **Host** bisa menekan **🔴 Tonton Live** di panel admin setelah room dibuat.
+   Panel memasang overlay iframe (tombol **Reload** / **Buka Tab Baru** /
+   **Tutup**) berisi `/game.html?code=<KODE>&spectate=1`; halaman itu menampilkan
+   satu kamera 3D per tim (grid otomatis, tab tim, mode fokus, zoom 70%–240% per
+   pemain) tanpa ikut bermain. Password admin diambil dari `sessionStorage`
+   (`sev7en-admin-pass`).
+9. Selama bermain, tiap client mengirim `score_update{score, floor, streak}`
+   maksimal tiap **400 ms**, sekaligus `player_state` (telemetri kamera) sekitar
+   **8×/detik** yang hanya diteruskan server ke observer admin. Server menyimpan
+   skor (diklem ≥ 0) lalu menyiarkan `leaderboard` terurut skor menurun ke host +
+   semua tim.
+10. Timer berjalan **di masing-masing client** (durasi sama, mulai hampir serentak).
+    Saat habis, client menampilkan hasil akhirnya sendiri; status room tetap
+    `playing` di server.
+11. Room hilang otomatis setelah **2 jam** (TTL, dicek tiap 10 menit) atau saat
     server restart.
 
 > Belum ada tombol "akhiri mabar" di UI. Server sudah mendukung pesan `end_game`
@@ -246,6 +257,9 @@ Semua pesan JSON, satu field `type`.
 | `score_update` | `{score, floor, streak}` → broadcast `leaderboard` |
 | `finish` | Skor akhir tim → broadcast `leaderboard` |
 | `end_game` | Host saja → broadcast `game_end` |
+| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, observers}` + snapshot telemetri tiap tim |
+| `spectate_leave` | Lepas observer dari room |
+| `player_state` | Tim → `{s}`; server menyimpan snapshot lalu meneruskannya ke observer room itu saja |
 
 | Server → client | Fungsi |
 | --- | --- |
@@ -254,6 +268,9 @@ Semua pesan JSON, satu field `type`.
 | `game_start` | Mulai bermain: `materi`, `duration`, `serverTime` |
 | `leaderboard` | Tim terurut skor menurun |
 | `game_end` | Sesi selesai |
+| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir |
+| `player_state` | Telemetri tim (`{teamId, s, t}`), relay hanya ke observer |
+| `team_offline` | `{teamId}` — tim putus, pane spectator menandai offline |
 | `error` | `{message}` — mis. `Password admin salah`, `Room penuh (10 tim)` |
 
 Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitektur-dan-protokol.md).
@@ -267,8 +284,8 @@ Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitekt
 Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
 
 ```bash
-npm test        # 5 file test game/renderer/struktur/landing (317 test), --test-isolation=none
-npm run test:vs-server   # suite server WebSocket Node (42 test, legacy/WIP: 1 gagal pre-existing)
+npm test        # 5 file test game/renderer/struktur/landing (353 test), --test-isolation=none
+npm run test:vs-server   # suite server WebSocket Node (61 test, legacy/WIP: 1 gagal pre-existing)
 ```
 
 Atau per file:
@@ -343,6 +360,10 @@ dan [tools/README.md](tools/README.md).
 | Join ditolak `Room sudah mulai` | Game sudah dimulai | Tunggu room baru dari host |
 | Room hilang sendiri | Restart server / `bun run dev` / TTL 2 jam | Pakai `bun run start`, buat room baru |
 | Port 3001 dipakai | Proses lama masih jalan | Hentikan proses itu atau ganti `PORT` |
+| Pane **Tonton Live** kosong / “menunggu” | Tim belum mulai atau telemetri belum masuk | Tekan **MULAI MABAR**, tunggu tim menjawab soal pertama |
+| Pane spectator **offline** | Socket tim putus atau telemetri berhenti >4 detik | Cek Wi-Fi perangkat tim; data terakhir tetap tampil sampai tim rejoin |
+| **Tonton Live** terus minta password | `sessionStorage` hilang (tab baru/browser ditutup) atau password beda | Buka lewat tombol **Tonton Live**; isi password yang sama dengan saat buat room |
+| Spectator patah-patah / fps rendah | Telemetri 8 Hz + renderer software untuk banyak kamera | Normal (±30 fps); kecilkan jendela, pakai mode fokus, tutup tab lain |
 | Layar game hitam / gambar aneh | Exception di renderer 3D | Buka DevTools (F12), lihat console; panduan [renderer §14](docs/10-renderer-3d.md#14-troubleshooting-renderer) |
 | Render tersendat / fps turun | Renderer software berjalan di CPU; jendela/zoom terlalu besar | Perkecil jendela, tutup tab berat; DPR otomatis dibatasi 2 |
 
@@ -360,6 +381,9 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
   skor, soal, HUD, maupun protokol VS.
 - **Skor dari client** (client-authoritative, diklem ≥ 0). Cocok untuk kelas /
   kelompok tertutup, bukan kompetisi publik berhadiah.
+- **Spectator live** merender beberapa kamera 3D sekaligus di browser admin,
+  dibatasi ±30 fps; telemetri 8 Hz diinterpolasi. Bukan rekaman: tutup tab admin
+  = tidak ada playback dan riwayat gerakan hilang.
 - **Maksimal 10 tim per room**, join hanya saat `lobby`.
 - **Soal hardcoded** di HTML, belum ada CRUD di panel admin →
   [docs/05-menambah-soal.md](docs/05-menambah-soal.md).

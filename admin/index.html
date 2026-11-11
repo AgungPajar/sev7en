@@ -111,6 +111,18 @@ button:active{transform:translateY(1px)}
   .side{display:none}
   .side-hide{display:flex}
 }
+/* ===== Tonton Live (spectator overlay) ===== */
+.spec-overlay{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.85);padding:2vh 2vw}
+.spec-overlay.open{display:flex}
+.spec-box{display:flex;flex-direction:column;gap:10px;width:min(92vw,calc(82vh * 16 / 9));max-width:1600px}
+.spec-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.spec-title{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:15px;color:#fff;margin-right:auto;display:flex;align-items:center;gap:8px}
+.spec-title .live-dot{width:9px;height:9px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;animation:specPulse 1.4s ease-in-out infinite}
+@keyframes specPulse{0%,100%{opacity:1}50%{opacity:.35}}
+.spec-frame{width:100%;aspect-ratio:16/9;max-height:82vh;border:1px solid rgba(248,113,113,.4);border-radius:16px;background:#000;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.spec-head a.btn-ghost{padding:11px 16px;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;text-decoration:none;background:rgba(148,163,184,.1);color:#cbd5e1;border:1px solid var(--line)}
+.spec-head a.btn-ghost:hover{background:rgba(148,163,184,.18)}
+body.spec-open{overflow:hidden}
 </style>
 </head>
 <body>
@@ -190,6 +202,7 @@ button:active{transform:translateY(1px)}
           <div class="row">
             <button class="btn-ghost" onclick="copyCode()"><span data-lucide="copy"></span> Salin Kode</button>
             <button class="btn-ghost" onclick="copyLink()"><span data-lucide="link"></span> Salin Link</button>
+            <button class="btn-ghost" id="btnWatch" onclick="openSpectator()"><span data-lucide="eye"></span> 🔴 Tonton Live</button>
             <button class="btn-green" id="btnStart" style="margin-left:auto"><span data-lucide="play"></span> MULAI MABAR</button>
           </div>
           <p class="err" id="errStart"></p>
@@ -212,6 +225,19 @@ button:active{transform:translateY(1px)}
   </div>
 </main>
 
+<!-- Overlay Tonton Live (spectator admin) -->
+<div class="spec-overlay" id="specOverlay" role="dialog" aria-modal="true" aria-label="Tonton Live">
+  <div class="spec-box">
+    <div class="spec-head">
+      <span class="spec-title"><span class="live-dot"></span> Tonton Live · <span id="specCode">—</span></span>
+      <button class="btn-ghost" id="btnSpecReload"><span data-lucide="rotate-cw"></span> Reload</button>
+      <a class="btn-ghost" id="btnSpecNewTab" target="_blank" rel="noopener"><span data-lucide="external-link"></span> Buka Tab Baru</a>
+      <button class="btn-ghost" id="btnSpecClose"><span data-lucide="x"></span> Tutup</button>
+    </div>
+    <iframe class="spec-frame" id="specFrame" title="Tonton Live" allow="fullscreen; gamepad" referrerpolicy="same-origin"></iframe>
+  </div>
+</div>
+
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
 <script>
 (function(){ if(window.lucide) try{ lucide.createIcons(); }catch(e){} })();
@@ -232,6 +258,7 @@ const WS_URLS = (()=>{
 })();
 
 let ws=null, roomCode=null, isHost=false, teams=[];
+const SPEC_PASS_KEY='sev7en-admin-pass';
 
 function setErr(id,msg){
   const el=document.getElementById(id);
@@ -342,6 +369,8 @@ document.getElementById('btnCreate').onclick=()=>{
   const materi=document.getElementById('materi').value;
   const duration=document.getElementById('duration').value;
   if(!adminPassword){ setErr('errCreate','Isi password admin'); return; }
+  // simpan password admin untuk spectator page di iframe (sessionStorage satu tab)
+  try{ sessionStorage.setItem(SPEC_PASS_KEY, adminPassword); }catch(e){}
   connectWS(()=>{
     ws.send(JSON.stringify({type:'create_room', adminPassword, materi, duration}));
   });
@@ -358,6 +387,63 @@ function copyLink(){
   const url=location.protocol+'//'+location.host+'/game.html?code='+roomCode+'#join';
   if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>alert('Link disalin:\n'+url)); else alert(url);
 }
+
+// ===== Tonton Live (spectator admin) =====
+// game.html?code=..&spectate=1 memakai password admin dari sessionStorage
+function specUrl(){
+  return '/game.html?code=' + encodeURIComponent(roomCode || '') + '&spectate=1';
+}
+
+function openSpectator(){
+  if(!roomCode) return;
+  const ov=document.getElementById('specOverlay');
+  const frame=document.getElementById('specFrame');
+  if(!ov || !frame) return;
+  document.getElementById('specCode').textContent=roomCode;
+  const newTab=document.getElementById('btnSpecNewTab');
+  if(newTab) newTab.href=specUrl();
+  frame.src=specUrl();
+  ov.classList.add('open');
+  document.body.classList.add('spec-open');
+}
+
+function closeSpectator(){
+  const ov=document.getElementById('specOverlay');
+  const frame=document.getElementById('specFrame');
+  if(!ov || !ov.classList.contains('open')) return;
+  ov.classList.remove('open');
+  document.body.classList.remove('spec-open');
+  // about:blank memutus koneksi WS observer di dalam iframe
+  if(frame) frame.src='about:blank';
+}
+
+function reloadSpectator(){
+  const frame=document.getElementById('specFrame');
+  const ov=document.getElementById('specOverlay');
+  if(frame && ov && ov.classList.contains('open')) frame.src=specUrl()+'&_r='+Date.now();
+}
+
+document.getElementById('btnSpecClose').onclick=closeSpectator;
+document.getElementById('btnSpecReload').onclick=reloadSpectator;
+document.getElementById('specOverlay').addEventListener('click',(e)=>{
+  if(e.target===e.currentTarget) closeSpectator();
+});
+window.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeSpectator(); });
+// listener postMessage dari spectator page (validasi origin sama)
+window.addEventListener('message',(ev)=>{
+  if(ev.origin!==location.origin) return;
+  const data=ev.data;
+  if(data && data.type==='sev7en-spec-exit') closeSpectator();
+});
+
+// pulihkan password admin setelah refresh supaya rejoin_host + Tonton Live tetap jalan
+(function(){
+  try{
+    const saved=sessionStorage.getItem(SPEC_PASS_KEY);
+    const inp=document.getElementById('adminPass');
+    if(saved && inp) inp.value=saved;
+  }catch(e){}
+})();
 
 connectWS();
 </script>

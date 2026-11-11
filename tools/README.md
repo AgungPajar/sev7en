@@ -4,9 +4,9 @@ Harness Node 26 (ESM, **tanpa dependency**) yang menjalankan Microsoft Edge
 headless lewat Chrome DevTools Protocol (CDP), membuka game di
 `http://127.0.0.1:4173/game.html`, menjalankan skenario JS, menyimpan screenshot
 PNG, dan mengumpulkan error halaman. Dipakai untuk verifikasi visual renderer 3D
-yang sedang dikerjakan di `game.html` (lihat `tools/3d-engine-spec.md`).
+dan mode penonton admin (lihat `tools/3d-engine-spec.md`).
 
-Harness **tidak** menyentuh `game.html`, dan **tidak** menjalankan server statis.
+Harness **tidak** menyentuh `game.html`, dan **tidak** menjalankan server.
 
 ## Prasyarat
 
@@ -14,6 +14,12 @@ Harness **tidak** menyentuh `game.html`, dan **tidak** menjalankan server statis
 2. **Server statis** di port 4173, dijalankan dari root proyek:
    ```
    python -m http.server 4173
+   ```
+   Untuk skenario mode penonton yang benar-benar end-to-end (`spectate-live`,
+   `admin-tonton-live`) pakai server Bun yang sekaligus melayani WebSocket:
+   ```
+   bun run vs-server/server.bun.js
+   node tools/capture3d.mjs --url=http://127.0.0.1:3001/game.html --scenario=spectate-live
    ```
 3. **Microsoft Edge** di
    `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
@@ -79,6 +85,29 @@ default diambil sekali di akhir skenario.
 | `space` | `startGame()`, lalu `floorLevel = 12; cam.y = -3000; cam.targetY = -3000; initEnvironment(); spawnNextStairOptions();` (zona luar angkasa) |
 | `mobile-portrait` | Viewport 390x844 (mobile), `startGame()`, tunggu 800 ms |
 | `mobile-landscape` | Viewport 844x390 (mobile), `startGame()`, tunggu 800 ms |
+| `spectate-grid` | Mode penonton: 4 tim sintetis di ketinggian berbeda → grid kamera 2×2, tab, bar info soal |
+| `spectate-focus` | Mode penonton: fokus tim ke-3 + zoom 160% |
+| `spectate-zoom` | Mode penonton: zoom per pemain berbeda (80% / 120% / 180% / 240%) |
+| `spectate-lobby` | Mode penonton: room nyata masih lobby (2 tim join, belum mulai) |
+| `spectate-live` | End-to-end: room nyata + 4 socket tim mengirim `player_state` → 4 kamera live + fokus |
+| `spectate-real-player` | End-to-end paling nyata: iframe halaman pemain (`game.html`) auto-join & main sungguhan, spectator admin menonton kamera pemain itu |
+| `spectate-fps` | Ukur fps rAF vs fps gambar mode penonton 4 kamera |
+| `admin-tonton-live` | End-to-end panel admin: buat room, 4 tim join + telemetri, klik **Tonton Live**, iframe 4 kamera + fokus/zoom |
+
+Catatan mode penonton:
+
+- `spectate-grid/focus/zoom/fps` menyuntik snapshot sintetis langsung ke klien
+  (tanpa room) supaya layout deterministic; cocok untuk screenshot dokumentasi.
+- `spectate-live`, `spectate-real-player`, dan `admin-tonton-live` memakai
+  protokol WebSocket sungguhan, jadi **wajib** pakai `--url=` ke server Bun/Node
+  yang punya endpoint `/ws` (`http://127.0.0.1:3001/game.html`, atau
+  `http://127.0.0.1:3001/admin/` untuk skenario panel admin). Password admin
+  default `sev7en-admin` (bisa diganti lewat env `ADMIN_PASSWORD` di server).
+- `spectate-real-player` menampilkan iframe halaman pemain di pojok kiri bawah
+  sebagai bukti kamera pane berasal dari telemetri pemain sungguhan; screenshot
+  keduanya diambil setelah pemain beberapa kali menjawab soal.
+- Skenario `admin-tonton-live` menghasilkan 2 screenshot: `overlay-4-kamera` dan
+  `overlay-fokus-zoom`.
 
 ### Menambah skenario
 

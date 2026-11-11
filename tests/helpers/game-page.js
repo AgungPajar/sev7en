@@ -144,12 +144,37 @@ function createCanvasContext(calls) {
 }
 
 function createElement(doc, tag = 'div', id = '') {
+  // Real class bookkeeping: the spectator mode toggles
+  // `document.body.classList.add('spectate-mode')`, so `classList` must behave
+  // like the browser API instead of being a no-op. `className` stays in sync
+  // in both directions.
+  const classSet = new Set();
+  const classList = {
+    add(...names) { for (const n of names) if (String(n)) classSet.add(String(n)); },
+    remove(...names) { for (const n of names) classSet.delete(String(n)); },
+    toggle(name, force) {
+      const key = String(name);
+      const on = force === undefined ? !classSet.has(key) : !!force;
+      if (on) classSet.add(key); else classSet.delete(key);
+      return on;
+    },
+    replace(from, to) {
+      if (!classSet.has(String(from))) return false;
+      classSet.delete(String(from));
+      classSet.add(String(to));
+      return true;
+    },
+    contains(name) { return classSet.has(String(name)); },
+    item(index) { return [...classSet][index] ?? null; },
+    get length() { return classSet.size; },
+    get value() { return [...classSet].join(' '); },
+    toString() { return [...classSet].join(' '); },
+  };
   const el = {
     tagName: String(tag).toUpperCase(),
     nodeName: String(tag).toUpperCase(),
     nodeType: 1,
     id,
-    className: '',
     style: {},
     dataset: {},
     children: [],
@@ -165,9 +190,7 @@ function createElement(doc, tag = 'div', id = '') {
     height: 0,
     _listeners: {},
     _rect: null,
-    classList: {
-      add() {}, remove() {}, toggle() {}, contains() { return false; },
-    },
+    classList,
     appendChild(child) {
       child.parentNode = el;
       el.children.push(child);
@@ -205,6 +228,17 @@ function createElement(doc, tag = 'div', id = '') {
     remove() { if (el.parentNode) el.parentNode.removeChild(el); },
     contains() { return false; },
   };
+
+  // `className` is the canonical string form of the class set.
+  Object.defineProperty(el, 'className', {
+    get() { return [...classSet].join(' '); },
+    set(value) {
+      classSet.clear();
+      for (const name of String(value || '').split(/\s+/)) if (name) classSet.add(name);
+    },
+    configurable: true,
+    enumerable: true,
+  });
 
   if (el.tagName === 'CANVAS') {
     const calls = {};

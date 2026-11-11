@@ -113,7 +113,357 @@ const SCENARIOS = [
       { eval: "(async () => { const frames = await new Promise((resolve) => { let count = 0; const t0 = performance.now(); const tick = () => { count++; if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else resolve({ count, ms: performance.now() - t0 }); }; requestAnimationFrame(tick); }); return Math.round(frames.count / (frames.ms / 1000)) + ' fps'; })()", wait: 100 },
     ],
   },
+  {
+    name: 'spectate-grid',
+    label: 'Penonton admin: 4 kamera tim sekaligus (grid 2x2) + tab + info soal',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateDemoScript(), wait: 1400 },
+      { shot: 'grid-4-kamera' },
+    ],
+  },
+  {
+    name: 'spectate-focus',
+    label: 'Penonton admin: mode fokus satu tim + zoom 160%',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateDemoScript(), wait: 1200 },
+      { eval: "specSelect('demo3'); SPEC.focus = true; specSetZoom('demo3', 1.6); vsSpecRenderNow(2000);", wait: 800 },
+      { shot: 'fokus-zoom' },
+    ],
+  },
+  {
+    name: 'spectate-zoom',
+    label: 'Penonton admin: zoom per pemain berbeda (80% / 120% / 180% / 240%)',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateDemoScript(), wait: 1000 },
+      { eval: "[['demo1', 0.8], ['demo2', 1.2], ['demo3', 1.8], ['demo4', 2.4]].forEach((pair) => specSetZoom(pair[0], pair[1])); vsSpecRenderNow(2000);", wait: 900 },
+      { shot: 'zoom-per-pemain' },
+    ],
+  },
+  {
+    name: 'spectate-fps',
+    label: 'Ukur fps rAF vs fps gambar mode penonton 4 kamera (~1,5 detik)',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateDemoScript(), wait: 1200 },
+      { eval: "(async () => { const t0 = performance.now(); let frames = 0, draws = 0, last = SPEC.lastDrawAt; await new Promise((resolve) => { const run = () => { frames++; if (SPEC.lastDrawAt !== last) { last = SPEC.lastDrawAt; draws++; } if (performance.now() - t0 < 1500) requestAnimationFrame(run); else resolve(true); }; requestAnimationFrame(run); }); const sec = (performance.now() - t0) / 1000; return Math.round(frames / sec) + ' fps rAF / ' + Math.round(draws / sec) + ' fps gambar'; })()", wait: 100 },
+    ],
+  },
+  {
+    name: 'spectate-real-player',
+    label: 'End-to-end nyata: 1 halaman pemain (iframe) main sungguhan, spectator menontonnya',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateRealPlayerScript(), wait: 300 },
+      { waitFor: "typeof SPEC !== 'undefined' && SPEC.connected && SPEC.teams.size >= 1 && Array.from(SPEC.teams.values()).every((t) => !!t.snap)", timeout: 15000 },
+      { wait: 1000 },
+      { shot: 'pemain-nyata' },
+      { wait: 1600 },
+      { shot: 'pemain-nyata-bergerak' },
+    ],
+  },
+  {
+    name: 'admin-tonton-live',
+    label: 'Panel admin: tombol Tonton Live membuka overlay iframe 4 kamera (end-to-end)',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: adminLiveSetupScript(), wait: 300 },
+      { waitFor: "(() => { const f = document.getElementById('specFrame'); if (!f) return false; const w = f.contentWindow; if (!w || typeof w.vsSpecView !== 'function') return false; const v = w.vsSpecView(); return !!(v && v.active && v.connected && v.teams.length === 4 && v.teams.every((t) => t.hasData)); })()", timeout: 15000 },
+      { wait: 1200 },
+      { shot: 'overlay-4-kamera' },
+      { eval: "(() => { const w = document.getElementById('specFrame').contentWindow; const v = w.vsSpecView(); const id = v.teams[2] && v.teams[2].id; if (!id) return false; w.specSelect(id); w.specToggleFocus(); w.specSetZoom(id, 1.5); w.vsSpecRenderNow(2500); return true; })()", wait: 900 },
+      { shot: 'overlay-fokus-zoom' },
+    ],
+  },
+  {
+    name: 'spectate-lobby',
+    label: 'Penonton admin: room masih lobby, menunggu tim join',
+    viewport: { width: 1280, height: 800 },
+    steps: [
+      { eval: spectateLobbyScript(), wait: 1000 },
+      { shot: 'lobby' },
+    ],
+  },
+  {
+    name: 'spectate-live',
+    label: 'Penonton admin end-to-end: room nyata + 4 tim kirim telemetri ke server',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: spectateLiveScript(), wait: 300 },
+      { waitFor: "typeof SPEC !== 'undefined' && SPEC.connected && SPEC.order.length === 4 && SPEC.order.every((id) => { const t = SPEC.teams.get(id); return !!(t && t.snap); })", timeout: 10000 },
+      { wait: 900 },
+      { shot: 'live-4-tim' },
+      { eval: "specSelect(SPEC.order[1]); SPEC.focus = true; specSetZoom(SPEC.order[1], 1.5); vsSpecRenderNow(3000);", wait: 800 },
+      { shot: 'live-fokus' },
+    ],
+  },
 ];
+
+// Demo visual mode penonton: injeksi snapshot ke klien (tanpa server room),
+// supaya screenshot layout/kamera/zoom bisa diambil deterministik.
+function spectateDemoScript() {
+  return `(() => {
+    if (typeof vsSpecStart !== 'function') throw new Error('halaman ini bukan build VS (spectator tidak ada)');
+    const teams = [
+      { id: 'demo1', name: 'BINTANG 1', floor: 3 },
+      { id: 'demo2', name: 'BINTANG 2', floor: 6 },
+      { id: 'demo3', name: 'BINTANG 3', floor: 9 },
+      { id: 'demo4', name: 'BINTANG 4', floor: 12 }
+    ];
+    const qs = [
+      { q: 'The cat is sleeping ______ the table. (Di bawah)', e: '🐱🪑', c: 'under', w: 'behind' },
+      { q: 'Look! She ______ reading a book now.', e: '📖👧', c: 'is', w: 'are' },
+      { q: 'We keep milk and fruit cold in the ______.', e: '🧊🍎', c: 'refrigerator', w: 'cupboard' },
+      { q: 'I go to school ______ bus.', e: '🚌🏫', c: 'by', w: 'on' }
+    ];
+    vsSpecStart('DEMO07', 'sev7en-admin');
+    const room = {
+      code: 'DEMO07', materi: 'all', duration: 180, status: 'playing',
+      teams: teams.map((t) => ({ id: t.id, name: t.name, score: t.floor * 120, floor: t.floor, streak: Math.min(5, t.floor % 6) }))
+    };
+    vsSpecOnMessage({ type: 'spectate_ok', code: 'DEMO07', startedAt: Date.now() - 45000, duration: 180, room: room });
+    for (const team of teams) {
+      const f = team.floor;
+      const q = qs[f % qs.length];
+      const cx = ((f % 3) - 1) * 60;
+      const s = {
+        f: f, sc: f * 120, stk: Math.min(5, f % 6), cx: cx, cy: -f * 210,
+        sx: cx, sy: -f * 210 - 48, ss: 'idle', se: 'happy', sr: 0, sk: 0, kx: 1, ky: 1,
+        b: [cx, -f * 210],
+        l: { x: cx - 230, y: -(f + 1) * 210, t: q.c, ok: 1, st: 'n', br: 0, fy: 0 },
+        r: { x: cx + 230, y: -(f + 1) * 210, t: q.w, ok: 0, st: 'n', br: 0, fy: 0 },
+        tr: [], q: { t: q.q, e: q.e }
+      };
+      vsSpecOnMessage({ type: 'player_state', teamId: team.id, s: s, t: Date.now() });
+    }
+    // Buang pesan error server (demo ini tidak memakai room sungguhan).
+    if (window.__demoErrClear) clearInterval(window.__demoErrClear);
+    window.__demoErrClear = setInterval(function () { try { SPEC.err = ''; } catch (e) {} }, 120);
+    return teams.length;
+  })()`;
+}
+
+function spectateLobbyScript() {
+  return `(async () => {
+    if (typeof vsSpecStart !== 'function') throw new Error('halaman ini bukan build VS (spectator tidak ada)');
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const host = await openWs();
+    host.send(JSON.stringify({ type: 'create_room', adminPassword: pass, materi: 'all', duration: 300 }));
+    const created = await waitMsg(host, 'room_created');
+    const code = created.code;
+    for (const name of ['BINTANG 1', 'BINTANG 2']) {
+      const ws = await openWs();
+      ws.send(JSON.stringify({ type: 'join_room', code: code, teamName: name }));
+      await waitMsg(ws, 'joined');
+    }
+    window.vsSpecStart(code, pass);
+    return code;
+  })()`;
+}
+
+// End-to-end: buat room nyata + 4 socket tim yang mengirim player_state, lalu
+// buka spectator dengan password admin. Memverifikasi relay server + render.
+function spectateLiveScript() {
+  return `(async () => {
+    if (typeof vsSpecStart !== 'function') throw new Error('halaman ini bukan build VS (spectator tidak ada)');
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const host = await openWs();
+    host.send(JSON.stringify({ type: 'create_room', adminPassword: pass, materi: 'all', duration: 180 }));
+    const created = await waitMsg(host, 'room_created');
+    const code = created.code;
+    const names = ['BINTANG 1', 'BINTANG 2', 'BINTANG 3', 'BINTANG 4'];
+    const teams = [];
+    for (let i = 0; i < names.length; i++) {
+      const ws = await openWs();
+      ws.send(JSON.stringify({ type: 'join_room', code: code, teamName: names[i] }));
+      await waitMsg(ws, 'joined');
+      teams.push(ws);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+    host.send(JSON.stringify({ type: 'start_game' }));
+    await new Promise((r) => setTimeout(r, 250));
+    const qs = [
+      { q: 'The cat is sleeping ______ the table. (Di bawah)', e: '🐱🪑', c: 'under', w: 'behind' },
+      { q: 'Look! She ______ reading a book now.', e: '📖👧', c: 'is', w: 'are' },
+      { q: 'We keep milk and fruit cold in the ______.', e: '🧊🍎', c: 'refrigerator', w: 'cupboard' },
+      { q: 'I go to school ______ bus.', e: '🚌🏫', c: 'by', w: 'on' }
+    ];
+    const base = [3, 6, 9, 12];
+    let tick = 0;
+    window.__specE2E = setInterval(() => {
+      tick++;
+      teams.forEach((ws, i) => {
+        const f = base[i] + Math.floor(tick / 24);
+        const q = qs[(f + i) % qs.length];
+        const cx = ((i % 3) - 1) * 60;
+        ws.send(JSON.stringify({ type: 'player_state', s: {
+          f: f, sc: f * 120, stk: Math.min(5, f % 6), cx: cx, cy: -f * 210,
+          sx: cx, sy: -f * 210 - 48, ss: 'idle', se: 'happy', sr: 0, sk: 0, kx: 1, ky: 1,
+          b: [cx, -f * 210],
+          l: { x: cx - 230, y: -(f + 1) * 210, t: q.c, ok: 1, st: 'n', br: 0, fy: 0 },
+          r: { x: cx + 230, y: -(f + 1) * 210, t: q.w, ok: 0, st: 'n', br: 0, fy: 0 },
+          tr: [], q: { t: q.q, e: q.e }
+        } }));
+      });
+    }, 125);
+    window.vsSpecStart(code, pass);
+    return code;
+  })()`;
+}
+
+// End-to-end paling nyata: halaman pemain asli (iframe game.html) auto-join,
+// host mulai mabar, pemain menjawab soal (triggerJump) → telemetri asli dari
+// kode game mengalir lewat server → spectator admin melihat kamera pemain itu.
+function spectateRealPlayerScript() {
+  return `(async () => {
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const host = await openWs();
+    host.send(JSON.stringify({ type: 'create_room', adminPassword: pass, materi: 'all', duration: 180 }));
+    const created = await waitMsg(host, 'room_created');
+    const code = created.code;
+    const frame = document.createElement('iframe');
+    frame.id = 'playerFrame';
+    frame.style.cssText = 'position:fixed;left:8px;bottom:8px;width:520px;height:330px;z-index:5;border:2px solid #22c55e;border-radius:10px;opacity:0.98;box-shadow:0 10px 30px rgba(0,0,0,.5)';
+    frame.src = '/game.html?code=' + encodeURIComponent(code) + '&team=UJI%20NYATA';
+    document.body.appendChild(frame);
+    await new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        let joined = false;
+        try {
+          const doc = frame.contentDocument;
+          const lobby = doc && doc.getElementById('vs-join-lobby');
+          joined = !!(lobby && getComputedStyle(lobby).display !== 'none');
+        } catch (e) {}
+        if (joined) return resolve(true);
+        if (Date.now() - t0 > 12000) return reject(new Error('iframe pemain tidak join lobby'));
+        setTimeout(tick, 120);
+      };
+      tick();
+    });
+    host.send(JSON.stringify({ type: 'start_game' }));
+    await new Promise((r) => setTimeout(r, 1600));
+    window.__realJump = setInterval(() => {
+      try { frame.contentWindow.triggerJump(Math.random() < 0.5 ? 'left' : 'right'); } catch (e) {}
+    }, 900);
+    window.vsSpecStart(code, pass);
+    return code;
+  })()`;
+}
+
+// End-to-end dari panel admin: buat room lewat tombol admin, 4 socket tim join
+// + kirim telemetri, mulai mabar, lalu klik "Tonton Live" dan tunggu iframe.
+function adminLiveSetupScript() {
+  return `(async () => {
+    const $ = (id) => document.getElementById(id);
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitFor = (fn, timeout) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        let ok = false;
+        try { ok = fn(); } catch (e) {}
+        if (ok) return resolve(true);
+        if (Date.now() - t0 > timeout) return reject(new Error('timeout di panel admin'));
+        setTimeout(tick, 80);
+      };
+      tick();
+    });
+    $('adminPass').value = pass;
+    $('btnCreate').click();
+    await waitFor(() => {
+      const code = String($('codeEl').textContent || '').trim();
+      return code.indexOf('—') < 0 && getComputedStyle($('roomCard')).display !== 'none';
+    }, 8000);
+    const code = String($('codeEl').textContent || '').replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    const teams = [];
+    for (const name of ['BINTANG 1', 'BINTANG 2', 'BINTANG 3', 'BINTANG 4']) {
+      const ws = await openWs();
+      ws.send(JSON.stringify({ type: 'join_room', code: code, teamName: name }));
+      teams.push(ws);
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    $('btnStart').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const qs = [
+      { q: 'The cat is sleeping ______ the table. (Di bawah)', e: '🐱🪑', c: 'under', w: 'behind' },
+      { q: 'Look! She ______ reading a book now.', e: '📖👧', c: 'is', w: 'are' },
+      { q: 'We keep milk and fruit cold in the ______.', e: '🧊🍎', c: 'refrigerator', w: 'cupboard' },
+      { q: 'I go to school ______ bus.', e: '🚌🏫', c: 'by', w: 'on' }
+    ];
+    const base = [2, 5, 8, 11];
+    let tick = 0;
+    window.__adminDemo = setInterval(() => {
+      tick++;
+      teams.forEach((ws, i) => {
+        const f = base[i] + Math.floor(tick / 24);
+        const q = qs[(f + i) % qs.length];
+        const cx = ((i % 3) - 1) * 60;
+        ws.send(JSON.stringify({ type: 'player_state', s: {
+          f: f, sc: f * 120, stk: Math.min(5, f % 6), cx: cx, cy: -f * 210,
+          sx: cx, sy: -f * 210 - 48, ss: 'idle', se: 'happy', sr: 0, sk: 0, kx: 1, ky: 1,
+          b: [cx, -f * 210],
+          l: { x: cx - 230, y: -(f + 1) * 210, t: q.c, ok: 1, st: 'n', br: 0, fy: 0 },
+          r: { x: cx + 230, y: -(f + 1) * 210, t: q.w, ok: 0, st: 'n', br: 0, fy: 0 },
+          tr: [], q: { t: q.q, e: q.e }
+        } }));
+      });
+    }, 125);
+    $('btnWatch').click();
+    return code;
+  })()`;
+}
+
+
 
 const DEFAULTS = {
   url: DEFAULT_URL,

@@ -20,8 +20,8 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 # vs-server/server.bun.test.js milik `bun test`).
 node --test --test-isolation=none \
   tests/game-core.test.js tests/game-3d.test.js tests/game-vs-client.test.js \
-  tests/site-structure.test.js tests/landing.test.js        # 317 test
-node --test --test-isolation=none tests/vs-server.test.js    # 42 test (butuh `ws`)
+  tests/site-structure.test.js tests/landing.test.js        # 353 test
+node --test --test-isolation=none tests/vs-server.test.js    # 61 test (butuh `ws`)
 ```
 
 Tidak perlu install dependency tambahan — memakai **Node.js built-in test runner**
@@ -36,16 +36,17 @@ tests/
 │   └── game-page.js       # sandbox DOM/canvas/audio/timer/WebSocket untuk menjalankan HTML asli
 ├── game-core.test.js      # 166 test core game (dijalankan untuk kedua file HTML)
 ├── game-3d.test.js        # 82 test kontrak renderer 3D (dijalankan untuk kedua file HTML)
-├── game-vs-client.test.js # 53 test client multiplayer di game.html
+├── game-vs-client.test.js # 89 test client multiplayer + spectator/telemetri di game.html
 ├── landing.test.js        # 8 test dialog join di index.html
 ├── site-structure.test.js # 8 test struktur markup & sinkronisasi build
-├── vs-server.test.js      # 42 test server WebSocket (unit + integrasi live)
+├── vs-server.test.js      # 61 test server WebSocket (unit + integrasi live + spectator)
 └── README.md
 ```
 
-Total: **359 test** — 358 lulus, 1 gagal pre-existing di `vs-server.test.js`
+Total Node: **414 test** — 413 lulus, 1 gagal pre-existing di `vs-server.test.js`
 ("supports rejoining a team after a disconnect", di luar scope renderer 3D; sengaja
-tidak diubah). Seluruh 317 test game/renderer/struktur/landing hijau.
+tidak diubah). Seluruh 353 test game/renderer/struktur/landing hijau.
+Tambahan `bun test vs-server/server.bun.test.js`: **21 test**, semuanya lulus.
 
 ## Pendekatan
 
@@ -55,7 +56,7 @@ tidak diubah). Seluruh 317 test game/renderer/struktur/landing hijau.
 lalu menjalankannya dengan `node:vm` di dalam sandbox yang meniru browser:
 
 - **DOM** — `document.getElementById`, `querySelector`, `createElement`, `style`,
-  `textContent`, `innerHTML`, event listener, dan `getBoundingClientRect`.
+  `className`/`classList`, `textContent`, `innerHTML`, event listener, dan `getBoundingClientRect`.
 - **Canvas 2D / renderer 3D** — semua method (`fillRect`, `arc`, `roundRect`,
   `moveTo/lineTo`, `measureText`, `setTransform`, dst.) dicatat jumlah pemanggilannya,
   plus state `fillStyle`/`strokeStyle`/`globalAlpha` per paint (`page.ctxLog()`),
@@ -105,6 +106,13 @@ memakai WebSocket client bawaan Node, sehingga protokol end-to-end benar-benar d
 - **Kontrol** — keyboard (`ArrowLeft/a/A`, `ArrowRight/d/D`) dan pointer kiri/kanan.
 - **VS client** — URL lokal/produksi, reconnect 2 s, semua tipe pesan server, lobby, leaderboard,
   create/join validation, throttle score 400 ms, auto-join dari `?code=` & `#join`.
+- **Telemetri pemain** — snapshot `vsCollectPlayerState` (field `f/sc/stk/cx/cy/sx/sy/ss/se/sr/sk/kx/ky/b/l/r/tr/q`,
+  START rung level 0, soal aktif, berubah setelah naik), `player_state` ~8 Hz hanya saat mabar
+  (`vsStartTelemetry`), berhenti lewat `vsStopTelemetry`/`endGame()`/`game_end`.
+- **Spectator admin** — auto-start dari `?code=..&spectate=1` (body `spectate-mode`, `window.__spectator`),
+  ingest `spectate_ok`/`player_state`/`team_offline`/`leaderboard`/`room_update`/`error`,
+  layout grid 1/4/10 tim + mode fokus, clamp zoom 0.7–2.4 per tim, hit-test & kontrol
+  pointer/wheel/keyboard, `vsSpecExit`, render multi-pane lewat renderer 3D asli tanpa merusak state pemain.
 - **Landing** — dialog join, validasi, prefill kode, redirect ter-encode.
 - **Struktur** — ID wajib ada, tidak ada script eksternal, build solo tanpa VS, `star_pou_vs.html` = `game.html`.
 - **Server** — auth admin, kode 6 karakter tanpa `I/O/0/1`, validasi join (duplikat, penuh,

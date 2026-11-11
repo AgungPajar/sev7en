@@ -96,6 +96,16 @@ describe('static file serving', () => {
     expect(design.status).toBe(200);
   });
 
+  test('admin panel ships the Tonton Live spectator launcher', async () => {
+    const html = await (await fetch(`${base}/admin/index.html`)).text();
+    expect(html).toContain('Tonton Live');
+    expect(html).toContain('id="specFrame"');
+    expect(html).toContain('allow="fullscreen; gamepad"');
+    expect(html).toContain('sev7en-admin-pass');
+    expect(html).toContain('sev7en-spec-exit');
+    expect(html).toContain('&spectate=1');
+  });
+
   test('rejects server sources, dotfiles, traversal, and unknown files', async () => {
     for (const path of [
       '/vs-server/server.js',
@@ -288,6 +298,42 @@ describe('VS room flow over /ws', () => {
 
     host.close();
     second.close();
+  });
+
+  test('spectator receives live telemetry and team_offline', async () => {
+    const host = await connect('/ws');
+    host.send({ type: 'create_room', adminPassword: 'test-pass' });
+    const { code } = await host.next('room_created');
+
+    const team = await connect('/ws');
+    team.send({ type: 'join_room', code, teamName: 'Tim Live' });
+    const { teamId } = await team.next('joined');
+    await host.next('room_update');
+
+    host.send({ type: 'start_game' });
+    await host.next('game_start');
+    await team.next('game_start');
+
+    // admin spectator boleh join mid-game
+    const spec = await connect('/ws');
+    spec.send({ type: 'spectate', code, adminPassword: 'test-pass' });
+    const ok = await spec.next('spectate_ok');
+    expect(ok.code).toBe(code);
+    expect(ok.observers).toBe(1);
+    expect(ok.room.teams.some((t) => t.id === teamId)).toBe(true);
+
+    team.send({ type: 'player_state', s: { f: 2, sc: 30, ss: 'jumping', cx: 1.5, cy: -20, kx: 9 } });
+    const live = await spec.next('player_state');
+    expect(live.teamId).toBe(teamId);
+    expect(live.s).toMatchObject({ f: 2, sc: 30, ss: 'jumping', cx: 1.5, cy: -20 });
+    expect(live.s.kx).toBe(2); // clamp skala
+
+    team.close();
+    const offline = await spec.next('team_offline');
+    expect(offline.teamId).toBe(teamId);
+
+    spec.close();
+    host.close();
   });
 });
 

@@ -9,11 +9,34 @@ import {
   roomPublic,
   broadcast,
   cleanupRooms,
+  sanitizePlayerState,
   CODE_CHARS,
   MAX_TEAMS,
 } from '../vs-server/server.js';
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Poll a predicate instead of sleeping a fixed time (telemetry has no ack).
+async function waitUntil(predicate, timeout = 2000) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeout) throw new Error('timed out waiting for condition');
+    await delay(10);
+  }
+}
+
+// Representative complete snapshot sent by game.html (~8x/detik).
+const snapshot = (over = {}) => ({
+  f: 3, sc: 120, stk: 2,
+  cx: 10.5, cy: -40.25, sx: 120, sy: -880,
+  ss: 'jumping', se: 'happy', sr: 1.25, sk: 0.5, kx: 1.05, ky: 0.95,
+  b: [120, -880],
+  l: { x: 100, y: -880, t: 'They ___ to school every day', ok: 1, st: 'c', br: 0, fy: -900 },
+  r: { x: 140, y: -880, t: 'They is go', ok: 0, st: 'w', br: 1, fy: -900 },
+  tr: [[0, 0, 0, 'correct'], [120, -880, 1, 'correct']],
+  q: { t: 'Pilih jawaban yang benar', e: '🍔' },
+  ...over,
+});
 
 // ---------------------------------------------------------------------------
 // WebSocket test client (Node's built-in WebSocket, no extra dependency)
@@ -167,6 +190,67 @@ describe('vs-server — pure helpers', () => {
     assert.deepEqual(sent, [{ type: 'x' }]);
   });
 
+  it('broadcast also reaches room observers', () => {
+    const sent = [];
+    const socket = () => ({ readyState: 1, send: (s) => sent.push(JSON.parse(s)) });
+    const r = {
+      teams: new Map([['a', { id: 'a', ws: socket() }]]),
+      hostWs: socket(),
+      observers: new Set([{ ws: socket() }, {}]),
+    };
+    broadcast(r, { type: 'room_update' });
+    assert.equal(sent.length, 3); // team + host + 1 open observer
+    for (const msg of sent) assert.deepEqual(msg, { type: 'room_update' });
+  });
+
+  it('sanitizePlayerState copies known fields only', () => {
+    const out = sanitizePlayerState({ ...snapshot(), rahasia: 'x', extra: 1 });
+    assert.deepEqual(out, snapshot());
+    assert.equal('rahasia' in out, false);
+    assert.equal('extra' in out, false);
+  });
+
+  it('sanitizePlayerState clamps numbers and truncates strings/trail', () => {
+    const out = sanitizePlayerState({
+      f: -5, sc: 3.9, stk: 'x',
+      cx: NaN, cy: Infinity, sr: 1e12,
+      ss: 's'.repeat(100), se: 42,
+      sk: 9, kx: 9, ky: -3,
+      b: [NaN, 2], l: 'nope',
+      r: { x: 1, y: 2, t: 't'.repeat(100), ok: 0, st: 'zz', br: 'yes', fy: Infinity },
+      tr: Array.from({ length: 12 }, (_, i) => [i, -i, i, i % 2]),
+      q: { t: 'q'.repeat(300), e: '🍔'.repeat(10) },
+    });
+    assert.equal(out.f, 0);
+    assert.equal(out.sc, 3);
+    assert.equal('stk' in out, false);
+    assert.equal('cx' in out, false);
+    assert.equal('cy' in out, false);
+    assert.equal(out.sr, 1e6);
+    assert.equal(out.ss.length, 16);
+    assert.equal('se' in out, false);
+    assert.equal(out.sk, 1);
+    assert.equal(out.kx, 2);
+    assert.equal(out.ky, 0.5);
+    assert.equal(out.b, null);
+    assert.equal(out.l, null);
+    assert.equal(out.r.t.length, 80);
+    assert.equal(out.r.st, 'n');
+    assert.equal(out.r.br, 1);
+    assert.equal('fy' in out.r, false);
+    assert.equal(out.tr.length, 8);
+    assert.equal(out.q.t.length, 160);
+    assert.equal(out.q.e.length, 8);
+  });
+
+  it('sanitizePlayerState rejects non-object snapshots', () => {
+    assert.equal(sanitizePlayerState(null), null);
+    assert.equal(sanitizePlayerState(undefined), null);
+    assert.equal(sanitizePlayerState('nope'), null);
+    assert.equal(sanitizePlayerState([1, 2, 3]), null);
+    assert.deepEqual(sanitizePlayerState({}), {});
+  });
+
   it('cleanupRooms removes only rooms older than the TTL', () => {
     const now = 10_000_000;
     const rooms = new Map([
@@ -206,6 +290,19 @@ describe('vs-server — live server', () => {
     const joined = await c.nextType('joined');
     return { c, joined };
   };
+
+  const startGame = async (host) => {
+    host.send({ type: 'start_game' });
+    await host.nextType('game_start');
+  };
+
+  const spectate = async (code, adminPassword = app.config.adminPassword) => {
+    const c = await client();
+    c.send({ type: 'spectate', code, adminPassword });
+    return c;
+  };
+
+  const sendState = (c, over = {}) => c.send({ type: 'player_state', s: snapshot(over) });
 
   beforeEach(async () => {
     clients = [];
@@ -619,5 +716,284 @@ describe('vs-server — live server', () => {
     c.send({ type: 'create_room', adminPassword: app.config.adminPassword });
     const created = await c.nextType('room_created');
     assert.equal(created.code.length, 6);
+  });
+
+  // ---- spectator & telemetry -------------------------------------------
+  it('relays player_state to a spectating admin for every team', async () => {
+    const { host, code } = await createRoom();
+    const teams = [];
+    for (let i = 1; i <= 4; i++) {
+      const { c, joined } = await joinRoom(code, `Tim ${i}`);
+      teams.push({ client: c, teamId: joined.teamId });
+    }
+    await startGame(host);
+    for (const t of teams) await t.client.nextType('game_start');
+
+    for (let i = 0; i < teams.length; i++) sendState(teams[i].client, { f: i, sc: 100 + i });
+    await waitUntil(() => teams.every((t) => app.rooms.get(code).teams.get(t.teamId).state));
+
+    const obs = await spectate(code);
+    const ok = await obs.nextType('spectate_ok');
+    assert.equal(ok.code, code);
+    assert.equal(ok.duration, 180);
+    assert.equal(typeof ok.startedAt, 'number');
+    assert.equal(ok.observers, 1);
+    assert.equal(ok.room.teams.length, 4);
+
+    const seen = new Map();
+    for (let i = 0; i < 4; i++) {
+      const ps = await obs.nextType('player_state');
+      seen.set(ps.teamId, ps);
+    }
+    assert.deepEqual([...seen.keys()].sort(), teams.map((t) => t.teamId).sort());
+    assert.equal(seen.get(teams[2].teamId).s.f, 2);
+    assert.equal(seen.get(teams[2].teamId).s.sc, 102);
+    for (const ps of seen.values()) assert.equal(typeof ps.t, 'number');
+  });
+
+  it('rejects spectate with a wrong admin password', async () => {
+    const { code } = await createRoom();
+    const obs = await spectate(code, 'wrong');
+    assert.equal((await obs.nextType('error')).message, 'Password admin salah');
+    assert.equal(app.rooms.get(code).observers.size, 0);
+  });
+
+  it('rejects spectate for an unknown room code', async () => {
+    const obs = await spectate('ZZZZZZ');
+    assert.equal((await obs.nextType('error')).message, 'Room tidak ditemukan');
+  });
+
+  it('sends the latest stored snapshot to a spectator joining mid-game', async () => {
+    const { host, code } = await createRoom();
+    const { c, joined } = await joinRoom(code, 'Alpha');
+    await startGame(host);
+    await c.nextType('game_start');
+    sendState(c, { f: 5, sc: 250 });
+    await waitUntil(() => app.rooms.get(code).teams.get(joined.teamId).state);
+
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    const ps = await obs.nextType('player_state');
+    assert.equal(ps.teamId, joined.teamId);
+    assert.deepEqual(ps.s, snapshot({ f: 5, sc: 250 }));
+    assert.equal(ps.t, app.rooms.get(code).teams.get(joined.teamId).stateAt);
+  });
+
+  it('ignores player_state sent by a spectator connection', async () => {
+    const { host, code } = await createRoom();
+    const { c, joined } = await joinRoom(code, 'Alpha');
+    await startGame(host);
+    await c.nextType('game_start');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    obs.clear();
+
+    obs.send({ type: 'player_state', s: snapshot() });
+    assert.equal(await obs.none(120), true);
+    assert.equal(app.rooms.get(code).teams.get(joined.teamId).state, null);
+  });
+
+  it('does not leak telemetry to teams or the host', async () => {
+    const { host, code } = await createRoom();
+    const { c: a, joined } = await joinRoom(code, 'Alpha');
+    const { c: b } = await joinRoom(code, 'Beta');
+    await startGame(host);
+    await a.nextType('game_start');
+    await b.nextType('game_start');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    a.clear(); b.clear(); host.clear();
+
+    sendState(a);
+    const ps = await obs.nextType('player_state');
+    assert.equal(ps.teamId, joined.teamId);
+    await delay(120);
+    for (const c of [a, b, host]) {
+      assert.equal(c.messages.some((m) => m.type === 'player_state'), false);
+    }
+  });
+
+  it('notifies observers with team_offline when a team socket closes', async () => {
+    const { host, code } = await createRoom();
+    const { c, joined } = await joinRoom(code, 'Alpha');
+    await startGame(host);
+    await c.nextType('game_start');
+    sendState(c);
+    await waitUntil(() => app.rooms.get(code).teams.get(joined.teamId).state);
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+
+    c.close();
+    const offline = await obs.nextType('team_offline');
+    assert.equal(offline.teamId, joined.teamId);
+    // state terakhir tetap disimpan supaya bisa direplay saat rejoin/spectate lagi
+    assert.ok(app.rooms.get(code).teams.get(joined.teamId).state);
+  });
+
+  it('keeps relaying telemetry after a team rejoins', async () => {
+    const { host, code } = await createRoom();
+    const { c, joined } = await joinRoom(code, 'Alpha');
+    await startGame(host);
+    await c.nextType('game_start');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+
+    sendState(c, { f: 1 });
+    assert.equal((await obs.nextType('player_state')).s.f, 1);
+
+    c.close();
+    await obs.nextType('team_offline');
+
+    const again = await client();
+    again.send({ type: 'rejoin', code, teamId: joined.teamId });
+    await again.nextType('rejoined');
+    await again.nextType('game_start');
+
+    sendState(again, { f: 9 });
+    const ps = await obs.nextType('player_state');
+    assert.equal(ps.teamId, joined.teamId);
+    assert.equal(ps.s.f, 9);
+  });
+
+  it('does not count observers as teams and allows spectating in the lobby', async () => {
+    const { code } = await createRoom();
+    const { joined } = await joinRoom(code, 'Alpha');
+    // kode lowercase juga diterima (server trim + uppercase)
+    const obs = await spectate(code.toLowerCase());
+    const ok = await obs.nextType('spectate_ok');
+    assert.equal(ok.code, code);
+    assert.equal(ok.room.status, 'lobby');
+    assert.equal(ok.startedAt, null);
+    assert.deepEqual(ok.room.teams.map((t) => t.id), [joined.teamId]);
+    assert.equal(ok.observers, 1);
+    assert.equal(app.rooms.get(code).teams.size, 1);
+    assert.equal(app.rooms.get(code).observers.size, 1);
+  });
+
+  it('sends existing room broadcasts such as game_start to spectators', async () => {
+    const { host, code } = await createRoom({ materi: 'food_kitchen', duration: 60 });
+    await joinRoom(code, 'Alpha');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+
+    host.send({ type: 'start_game' });
+    const start = await obs.nextType('game_start');
+    assert.equal(start.materi, 'food_kitchen');
+    assert.equal(start.duration, 60);
+    assert.equal(typeof start.serverTime, 'number');
+  });
+
+  it('keeps spectator traffic isolated between rooms', async () => {
+    const roomA = await createRoom();
+    const roomB = await createRoom();
+    const { c: teamA, joined: joinedA } = await joinRoom(roomA.code, 'Alpha');
+    const { c: teamB } = await joinRoom(roomB.code, 'Beta');
+    await startGame(roomA.host);
+    await startGame(roomB.host);
+    await teamA.nextType('game_start');
+    await teamB.nextType('game_start');
+
+    const obsA = await spectate(roomA.code);
+    await obsA.nextType('spectate_ok');
+    const obsB = await spectate(roomB.code);
+    await obsB.nextType('spectate_ok');
+    obsA.clear(); obsB.clear();
+
+    sendState(teamA, { f: 3 });
+    const ps = await obsA.nextType('player_state');
+    assert.equal(ps.teamId, joinedA.teamId);
+    await delay(120);
+    assert.equal(obsB.messages.some((m) => m.type === 'player_state'), false);
+    assert.equal(app.rooms.get(roomA.code).observers.size, 1);
+    assert.equal(app.rooms.get(roomB.code).observers.size, 1);
+  });
+
+  it('forgets an observer when its socket closes (without a fake room_update)', async () => {
+    const { code } = await createRoom();
+    await joinRoom(code, 'Alpha');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    await waitUntil(() => app.rooms.get(code).observers.size === 1);
+
+    obs.close();
+    await waitUntil(() => app.rooms.get(code).observers.size === 0);
+  });
+
+  it('removes the observer on spectate_leave without replying', async () => {
+    const { code } = await createRoom();
+    await joinRoom(code, 'Alpha');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    obs.clear();
+
+    obs.send({ type: 'spectate_leave' });
+    assert.equal(await obs.none(120), true);
+    assert.equal(app.rooms.get(code).observers.size, 0);
+  });
+
+  it('sanitizes telemetry before relaying to spectators', async () => {
+    const { host, code } = await createRoom();
+    const { c } = await joinRoom(code, 'Alpha');
+    await startGame(host);
+    await c.nextType('game_start');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    obs.clear();
+
+    c.send({
+      type: 'player_state',
+      s: {
+        f: -9, sc: 7.8, stk: 'x',
+        cx: NaN, cy: Infinity, sr: 1e12,
+        ss: 's'.repeat(40), se: 42,
+        sk: 9, kx: 9, ky: -3,
+        b: [NaN, 2], l: 'nope',
+        r: { x: 1, y: 2, t: 't'.repeat(100), ok: 0, st: 'zz', br: 'yes', fy: Infinity },
+        tr: Array.from({ length: 12 }, (_, i) => [i, -i, i, i % 2]),
+        q: { t: 'q'.repeat(300), e: '🍔'.repeat(10) },
+        alien: 'dibuang',
+      },
+    });
+    const ps = await obs.nextType('player_state');
+    assert.equal(ps.s.f, 0);
+    assert.equal(ps.s.sc, 7);
+    assert.equal('stk' in ps.s, false);
+    assert.equal('cx' in ps.s, false);
+    assert.equal('cy' in ps.s, false);
+    assert.equal(ps.s.sr, 1e6);
+    assert.equal(ps.s.ss.length, 16);
+    assert.equal('se' in ps.s, false);
+    assert.equal(ps.s.sk, 1);
+    assert.equal(ps.s.kx, 2);
+    assert.equal(ps.s.ky, 0.5);
+    assert.equal(ps.s.b, null);
+    assert.equal(ps.s.l, null);
+    assert.equal(ps.s.r.t.length, 80);
+    assert.equal(ps.s.r.st, 'n');
+    assert.equal(ps.s.r.br, 1);
+    assert.equal('fy' in ps.s.r, false);
+    assert.equal(ps.s.tr.length, 8);
+    assert.equal(ps.s.q.t.length, 160);
+    assert.equal(ps.s.q.e.length, 8);
+    assert.equal('alien' in ps.s, false);
+
+    // `s` bukan objek -> pesan diabaikan, tidak ada relay
+    obs.clear();
+    c.send({ type: 'player_state', s: 'nope' });
+    assert.equal(await obs.none(150), true);
+  });
+
+  it('cleanup removes rooms together with their observers', async () => {
+    const { code } = await createRoom();
+    await joinRoom(code, 'Alpha');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+    const room = app.rooms.get(code);
+    assert.equal(room.observers.size, 1);
+
+    room.createdAt = Date.now() - 3 * 60 * 60 * 1000;
+    assert.equal(app.cleanupNow(), 1);
+    assert.equal(app.rooms.has(code), false);
+    assert.equal(app.cleanupNow(), 0);
   });
 });

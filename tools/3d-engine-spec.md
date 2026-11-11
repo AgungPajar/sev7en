@@ -177,9 +177,39 @@ Angka di bawah ini adalah nilai yang benar-benar dipakai kode final:
 | Matahari senja | dunia `(-2300, 1450, -3200)`, radius 130 |
 | DPR | `min(2, devicePixelRatio)`; `canvas.width = round(W*DPR)` |
 | FPS terukur (Edge headless, tanpa GPU) | ±55 fps pada 1280×800 |
+| FPS gambar mode penonton (4 pane) | ±30 fps gambar (`SPEC_MIN_FRAME_MS = 30`); rAF 30–60 fps tergantung beban |
 
 Catatan: `p._mesh3d` menyimpan `{ rw, wy, faces, topY, halfW, halfD }` dan
 dibangun ulang bila `rw` atau `wy + fallY` berubah.
+
+## Multi-kamera (mode penonton admin)
+
+Renderer sengaja tidak dijadikan library terpisah. Sebagai gantinya scene
+dipecah menjadi satu fungsi yang menggambar ke viewport aktif:
+
+- `drawWorldScene(t, opts)` — urutan render §Urutan render per frame, memakai
+  state global (`ctx`, `W`, `H`, `cam`, `star`, platform, partikel) dan
+  `updateCameraRig(t, opts?.zoom)`.
+- `updateCameraRig(t, zoom)` — `zoom` (0.7–2.4) memindahkan eye lebih dekat:
+  `dist = max(340, focal / s) / zoom`; nilai disimpan di `camera3D.zoom`
+  (default `1` = framing pemain).
+
+Mode penonton admin (blok `@vs-only`) memakai fungsi yang sama untuk tiap tim:
+
+1. Hitung layout pane (`specComputeLayout(W, H)`): top bar, strip tab, grid
+   pane (1/2/3–4/5–6/7–9/10 tim → 1, 2, 2×2, 3×2, 3×3, 4 kolom), bar info.
+2. Untuk tiap pane: `save()` → `rect(pane)` + `clip()` → `setTransform` agar
+   origin pane di kiri-atas → tukar state global (`W`, `H`, `STEP_X`, `cam`,
+   `star`, `currentBasePlat`, `leftOptionPlat`, `rightOptionPlat`,
+   `letitedPlatforms`, `particles`, `floatingTexts`, `bgClouds`) ke snapshot
+   tim → `drawWorldScene(t, { zoom })` → restore di `finally`.
+3. Awan latar per pane diambil dari cache pita ketinggian
+   (`specCloudsFor(camY)`, ≤14 entri) supaya tetap ada awan di tim yang tinggi.
+4. Telemetri 8 Hz diinterpolasi (time constant 80 ms) agar kamera pane halus.
+5. Semua pane digambar pada satu canvas & satu rAF; gambar dibatasi ~30 fps
+   (`SPEC_MIN_FRAME_MS = 30`) untuk menghemat CPU laptop sekolah.
+6. Build solo: `drawWorldScene`/`updateCameraRig` tetap ada (dipakai loop
+   pemain), seluruh kode spectator dihapus oleh `tools/sync-solo.mjs`.
 
 ## Build solo
 

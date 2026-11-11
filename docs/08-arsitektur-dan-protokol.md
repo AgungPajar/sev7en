@@ -41,11 +41,15 @@ Browser tim 10─┘                        └───────────
                                                 ├─ room_update
                                                 ├─ game_start
                                                 ├─ leaderboard
+                                                ├─ player_state (relay ke observer)
                                                 └─ game_end
 ```
 
 - Host dan tim memakai koneksi WebSocket yang sama.
 - Server membedakan peran dari state socket (`_isHost`, `_teamId`, `_room`).
+- Observer spectator juga lewat WebSocket yang sama. Server mendaftarkannya di
+  `room.observers` (bukan `teams`), sehingga observer tidak dihitung sebagai tim
+  dan tidak ikut menerima balasan untuk tim.
 - Semua pesan berupa JSON teks.
 
 ---
@@ -130,7 +134,8 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
   hostWs: WebSocket | null,
   createdAt: 1760000000000,
   startedAt: 1760000100000,
-  teams: Map<teamId, Team>
+  teams: Map<teamId, Team>,
+  observers: Set<Connection>   // observer spectator (bukan tim)
 }
 ```
 
@@ -143,7 +148,9 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
   score: 0,
   floor: 0,
   streak: 0,
-  ws: WebSocket | null
+  ws: WebSocket | null,
+  state: { ... } | null,       // snapshot telemetri terakhir dari client
+  stateAt: 1760000112345       // waktu snapshot diterima (ms)
 }
 ```
 
@@ -162,6 +169,30 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
   ]
 }
 ```
+
+### Telemetri pemain (`player_state`)
+
+Data yang dikirim tim sekitar **8×/detik** khusus untuk spectator. Bentuk `s`
+ditentukan client (state renderer), dan server tidak menghitung gameplay dari
+sini. Isinya:
+
+- posisi kamera dan posisi bintang,
+- status lompat/jatuh,
+- papan soal kiri/kanan,
+- riwayat tangga,
+- skor, streak, dan floor sebagai salinan tampilan, bukan sumber leaderboard.
+
+Envelope yang diteruskan server ke observer:
+
+```js
+{ type: 'player_state', teamId: 'x9k2a', s: { /* state klien */ }, t: 1760000112345 }
+```
+
+Server menyimpan objek `s` terakhir di `team.state` bersama `team.stateAt`, lalu
+mengirimnya ke observer yang baru bergabung. Sebelum disimpan, `s` disaring ke
+field yang dikenal (angka dibatasi, teks dipotong, riwayat tangga maksimal 8
+entri), jadi field asing tidak ikut diteruskan. `roomPublic()` tidak berubah, jadi
+semua pesan room lama tetap kompatibel.
 
 ### Konstanta penting
 
@@ -183,6 +214,9 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
 | Jarak kamera minimum | 340 | `game.html` |
 | DPR maksimum | 2 | `game.html` |
 | Throttle skor | 400 ms | `game.html` |
+| Telemetri `player_state` | ±8×/detik (≈125 ms) | `game.html` |
+| Target FPS spectator | ±30 | `game.html` |
+| Rentang zoom pane spectator | 70%–240% (langkah 20%, reset 100%) | `game.html` |
 | Reconnect VS | 2 detik | `game.html` |
 | Delay benar / salah | 550 ms / 900 ms | `game.html` |
 | Ambang tanpa batas | durasi ≥ 9000 | `game.html` |
@@ -198,9 +232,11 @@ create_room
  lobby ──(join_room)──► lobby ──(start_game)──► playing
    │                                               │
    │                                               ├─ score_update → leaderboard
+   │                                               ├─ player_state → observer
    │                                               ├─ finish → leaderboard
    │                                               └─ end_game → ended
    │
+   ├─ spectate → observer (read-only)
    └─ TTL 2 jam / restart server → dihapus
 ```
 
@@ -208,13 +244,18 @@ create_room
 |---|---|---|
 | `create_room` | Password benar | Room baru, host terikat |
 | `join_room` | Room ada, status lobby, <10 tim, nama unik | Tim baru, broadcast `room_update` |
-| `rejoin` | Room & teamId ada | Socket tim diganti, kirim `rejoined` |
+| `rejoin` | Room & teamId ada | Socket tim diganti, kirim `rejoined` (+ `game_start` bila playing) |
+| `rejoin_host` | Room ada & password benar | Socket host diganti, kirim `rejoined_host` (+ `game_start` bila playing) |
 | `start_game` | Socket host, minimal 1 tim | Status playing, broadcast `game_start` |
 | `score_update` | Room playing, socket terikat tim | Simpan + broadcast `leaderboard` |
 | `finish` | Room ada, socket terikat tim | Update final + broadcast `leaderboard` |
 | `end_game` | Socket host | Status ended, broadcast `game_end` |
+| `spectate` | Password admin benar, room ada | Observer terdaftar di `observers`, balas `spectate_ok` + snapshot terakhir |
+| `spectate_leave` | — | Observer dilepas dari room |
+| `player_state` | Room playing, socket terikat tim | Simpan `team.state`/`stateAt`, relay ke observer room itu |
 | Disconnect host | — | `hostWs = null`, room tetap hidup |
-| Disconnect tim | — | `team.ws = null`, entry tetap, broadcast `room_update` |
+| Disconnect tim | — | `team.ws = null`, entry tetap, broadcast `room_update` + `team_offline` ke observer |
+| Disconnect observer | — | Dihapus dari `observers`, room tetap hidup |
 
 Catatan:
 
@@ -224,6 +265,22 @@ Catatan:
   khusus ke host, sehingga host menerima dua pesan.
 - `finish` belum dipakai UI client.
 - Room `ended` tetap berada di Map sampai TTL.
+
+### Alur spectator
+
+```
+ADMIN spectator ──spectate{code, adminPassword}──► RoomManager
+                                                      │
+                                    spectate_ok + snapshot ──► observer
+                                                      │
+TIM 1..10 ──player_state ±8 Hz──► simpan team.state ──┼──relay player_state──► observer
+                                                      │
+                                    team_offline ─────┘ (socket tim putus)
+```
+
+Observer hanya membaca: pesan `player_state` dari observer diabaikan karena
+socket observer tidak punya `teamId`. Relay `player_state` tidak pernah dikirim
+ke tim lain atau host biasa di room yang sama.
 
 ---
 
@@ -282,7 +339,24 @@ Semua pesan berupa objek JSON dengan field `type`.
 
 - Hanya berhasil jika room dan teamId masih ada.
 - Tidak divalidasi password; bergantung pada kerahasiaan `teamId`.
-- Tidak ada UI untuk ini saat ini.
+- Client mengirimnya otomatis saat WebSocket tersambung ulang, selama `code` dan
+  `teamId` masih ada di memori halaman. Identitas tidak disimpan di
+  `localStorage`, jadi refresh halaman tetap menghilangkannya.
+- Setelah rejoin sukses, server mengirim `game_start` lagi bila room sedang
+  `playing`.
+
+### `rejoin_host`
+
+```json
+{ "type": "rejoin_host", "code": "RQ7K2P", "adminPassword": "sev7en-admin" }
+```
+
+- Hanya berhasil bila room ada dan password benar; kegagalan tidak dibalas.
+- Socket dijadikan host kembali (`hostWs`/`hostConn` diganti), lalu server
+  mengirim `rejoined_host`. Bila room sedang `playing`, `game_start` dikirim ulang.
+- Client mengirimnya otomatis saat WebSocket tersambung ulang selama kode room
+  masih di memori (host membuat room dari `game.html`, atau panel admin yang
+  tab-nya tidak di-refresh).
 
 ### `start_game`
 
@@ -323,6 +397,45 @@ Semua pesan berupa objek JSON dengan field `type`.
 - Hanya host.
 - Status `ended`, siarkan `game_end`.
 
+### `spectate`
+
+```json
+{ "type": "spectate", "code": "RQ7K2P", "adminPassword": "sev7en-admin" }
+```
+
+- Password dibandingkan dengan `ADMIN_PASSWORD`; password salah atau room tidak
+  ada dibalas `error`.
+- Socket yang lolos didaftarkan ke `room.observers`. Observer **tidak** masuk
+  `teams`, tidak mengubah status room, dan tidak bisa memakai pesan host.
+- Balasan: `spectate_ok` berisi snapshot room, `startedAt`, `duration`, jumlah
+  observer, lalu `player_state` terakhir tiap tim (kalau ada).
+- `startedAt` bernilai `null` selama room masih lobby; observer tetap bisa masuk
+  dan menunggu sampai host memulai permainan.
+
+### `spectate_leave`
+
+```json
+{ "type": "spectate_leave" }
+```
+
+- Mengeluarkan socket dari `room.observers`; room tetap hidup.
+- Tidak wajib dikirim sebelum menutup koneksi: disconnect juga membersihkan
+  observer.
+
+### `player_state`
+
+```json
+{ "type": "player_state", "s": { "…": "state renderer klien" } }
+```
+
+- Hanya diproses bila socket terikat ke sebuah tim dan status room `playing`.
+  Telemetri yang datang sebelum host menekan mulai diabaikan.
+- Server menyimpan `team.state = msg.s` dan `team.stateAt = Date.now()`, lalu
+  meneruskan `{ type: 'player_state', teamId, s, t }` ke observer room itu saja.
+- Tidak disiarkan ke tim lain atau host yang bukan observer.
+- `player_state` dari observer diabaikan (observer tidak punya `teamId`).
+- Skor leaderboard tetap bersumber dari `score_update`, bukan dari `s`.
+
 ---
 
 ## 8. Protokol server → client
@@ -332,11 +445,19 @@ Semua pesan berupa objek JSON dengan field `type`.
 | `room_created` | `code`, `room` | Setelah create sukses |
 | `joined` | `code`, `teamId`, `room` | Setelah join sukses |
 | `rejoined` | `room` | Setelah rejoin sukses |
+| `rejoined_host` | `room` | Setelah rejoin_host sukses |
 | `room_update` | `room` | Tim join atau disconnect |
 | `game_start` | `materi`, `duration`, `serverTime` | Host memulai |
 | `leaderboard` | `teams[]` | Skor berubah / finish |
 | `game_end` | — | Host mengakhiri |
+| `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `observers` | Setelah `spectate` sukses |
+| `player_state` | `teamId`, `s`, `t` | Relay telemetri tim ke observer |
+| `team_offline` | `teamId` | Socket tim putus |
 | `error` | `message` | Validasi gagal |
+
+Pesan room lama (`room_update`, `leaderboard`, `game_start`, `game_end`,
+`error`) juga disiarkan ke observer room itu; bentuknya tidak berubah. Relay
+`player_state` hanya ke observer, tidak ke tim.
 
 Contoh `game_start`:
 
@@ -370,6 +491,47 @@ Contoh `error`:
 { "type": "error", "message": "Nama tim sudah dipakai" }
 ```
 
+Contoh `spectate_ok`:
+
+```json
+{
+  "type": "spectate_ok",
+  "code": "RQ7K2P",
+  "room": {
+    "code": "RQ7K2P",
+    "materi": "all",
+    "duration": 180,
+    "status": "playing",
+    "teams": [
+      { "id": "x9k2a", "name": "TIM A", "score": 520, "floor": 4, "streak": 4 }
+    ]
+  },
+  "startedAt": 1760000100000,
+  "duration": 180,
+  "observers": 1
+}
+```
+
+`observers` dihitung dari jumlah socket observer aktif di room itu. Snapshot
+telemetri dikirim menyusul sebagai pesan `player_state` terpisah per tim.
+
+Contoh `player_state` (relay ke observer):
+
+```json
+{
+  "type": "player_state",
+  "teamId": "x9k2a",
+  "s": { "…": "state renderer klien" },
+  "t": 1760000112345
+}
+```
+
+Contoh `team_offline`:
+
+```json
+{ "type": "team_offline", "teamId": "x9k2a" }
+```
+
 ---
 
 ## 9. Perilaku koneksi dan error
@@ -380,6 +542,8 @@ Contoh `error`:
 - Error `send` ditelan (`try/catch`) agar satu socket bermasalah tidak
   menghentikan broadcast.
 - Socket yang belum pernah join tidak memengaruhi room saat disconnect.
+- Observer yang putus dihapus dari `room.observers`; relay ke room lain tidak
+  terpengaruh.
 - Server tidak mengirim heartbeat; koneksi mati terdeteksi lewat event `close`
   dari `ws`.
 
@@ -392,11 +556,13 @@ Contoh `error`:
 | Persistence | Memori proses | Restart = data hilang |
 | Skor | Client-authoritative | Rawan manipulasi |
 | Auth host | Hanya `_isHost` di socket | Refresh = kehilangan host |
-| Rejoin | Ada di protokol, tanpa UI | Refresh tim = keluar permanen |
+| Rejoin | Otomatis saat socket tersambung ulang; identitas di memori halaman | Refresh tim = keluar permanen, tidak ada tombol rejoin manual |
 | Soal | Hardcoded di HTML | Butuh deploy untuk ubah |
 | Skala | Satu proses, satu instance | Tidak bisa horizontal scaling tanpa state sharing |
 | Observability | Hanya `/health` + log | Tidak ada metrik/audit |
 | Rate limit | Tidak ada | Rentan spam pesan |
+| Telemetri spectator | Relay `player_state` ±8 Hz per tim, hanya snapshot terakhir | Tidak ada riwayat/playback; observer baru melihat kondisi terkini |
+| Beban spectator | Semua pane dirender di browser admin, target ±30 fps | Beban CPU di perangkat admin, bukan di server |
 
 ---
 
@@ -405,9 +571,11 @@ Contoh `error`:
 Jika sistem dikembangkan, urutan prioritas yang wajar:
 
 1. **Tombol end + podium** di admin, memakai `end_game` yang sudah ada.
-2. **Rejoin UI** dengan menyimpan `{code, teamId}` di `localStorage` dan mengirim
-   `rejoin` saat koneksi dibuka.
-3. **Host reconnect** memakai token host, bukan hanya identitas socket.
+2. **Rejoin tahan-refresh**: simpan `{code, teamId}` di `localStorage`, lalu kirim
+   `rejoin` saat halaman dibuka. Saat ini rejoin hanya jalan untuk socket yang
+   putus tanpa refresh.
+3. **Host reconnect yang tahan-refresh**: `rejoin_host` sudah ada, tetapi kode
+   room host hanya di memori tab; token host yang persisten belum ada.
 4. **Soal dari server/API** agar guru bisa menambah soal tanpa deploy, sekaligus
    memungkinkan soal sama untuk semua tim.
 5. **Validasi skor di server** (server menghitung poin dari jawaban, bukan
@@ -427,5 +595,11 @@ Semua perubahan itu memerlukan penyesuaian client, server, dan dokumentasi ini.
 - Anggap kode room sebagai rahasia kelas, bukan kredensial kuat.
 - Jangan memakai skor untuk penilaian formal tanpa pengawasan.
 - Batasi akses panel admin di level jaringan bila perlu (VPN/IP allowlist).
+- Observer spectator lolos hanya dengan password admin, dan telemetri pemain
+  tidak pernah dikirim ke tim lain. Password observer tetap lewat WebSocket,
+  jadi WSS wajib di production.
+- Perhatikan `sessionStorage` di browser admin: key `sev7en-admin-pass` menyimpan
+  password selama tab hidup. Jangan menonton dari perangkat bersama tanpa
+  membersihkan sessionStorage setelah sesi selesai.
 
 Lanjut ke [09 · Troubleshooting & FAQ](09-troubleshooting-faq.md).

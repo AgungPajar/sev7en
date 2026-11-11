@@ -736,7 +736,10 @@
     }
 
     // --- 6.1 Kamera rig: kamera mengikuti pijakan saat bintang naik ---
-    function updateCameraRig(t) {
+    // zoom = 1 -> framing normal pemain; >1 mendekat (zoom in); <1 menjauh.
+    function updateCameraRig(t, zoom) {
+      const zoomRaw = Number(zoom);
+      const zoomK = isFinite(zoomRaw) ? Math.max(0.6, Math.min(2.4, zoomRaw)) : 1;
       const focal = (H / 2) / Math.tan((CAM_FOV_DEG * DEG) / 2);
       const platHalf = Math.min(250, STEP_X * 1.7) / 2;
       // Layar pendek (mis. HP landscape) perlu skala kamera lebih kecil supaya
@@ -744,7 +747,7 @@
       const sVert = ((H >= 520 ? 0.33 : 0.30) * H) / (STEP_Y * 0.86);
       const sHoriz = (0.46 * W) / (STEP_X + platHalf);
       const s = Math.max(0.5, Math.min(1.75, Math.min(sVert, sHoriz)));
-      const dist = Math.max(340, focal / s);
+      const dist = Math.max(340, focal / s) / zoomK;
       const AU = STEP_Y * 0.86;
       const aim = { x: cam.x, y: -cam.y + AU, z: 0 };
       const orbit = Math.sin((t || 0) * 0.00018) * 3 * DEG;
@@ -766,6 +769,7 @@
       camera3D.up = vCross(camera3D.right, fwd);
       camera3D.pitch = Math.asin(Math.max(-1, Math.min(1, -fwd.y)));
       camera3D.scale = focal / dist;
+      camera3D.zoom = zoomK;
     }
 
     // --- 6.2 Proyeksi & clipping ---
@@ -1511,15 +1515,11 @@
     }
 
     // --- 6.11 Loop utama ---
-    function animate(t) {
-      requestAnimationFrame(animate);
-
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-      // Smooth Camera Tracking (Follows current climbed stair)
-      cam.x += (cam.targetX - cam.x) * 0.08;
-      cam.y += (cam.targetY - cam.y) * 0.08;
-      updateCameraRig(t);
+    // Menggambar satu scene penuh ke viewport aktif (W x H) memakai state global.
+    // opts.zoom dipakai mode penonton (admin) untuk zoom per kamera pemain.
+    function drawWorldScene(t, opts) {
+      const o = opts || {};
+      updateCameraRig(t, o.zoom);
 
       // 1. Langit, bintang, planet & awan latar
       drawSkyAndEnvironment(t);
@@ -1543,7 +1543,37 @@
         drawPlatform(p, p === leftOptionPlat || p === rightOptionPlat);
       }
 
-      // 5. Update Star-Pou Jump / Fall Physics
+      // 5. Karakter
+      drawStarPou(t);
+
+      // 6. Konfeti
+      drawParticles();
+
+      // 7. Teks melayang
+      drawFloatingTexts();
+
+      // 8. Awan depan + vignette
+      drawForegroundClouds();
+      drawVignette();
+    }
+
+    function animate(t) {
+      requestAnimationFrame(animate);
+
+      // Mode penonton admin: renderer yang sama dipakai untuk banyak kamera tim.
+      if (window.__spectator && typeof window.__spectator.frame === 'function') {
+        window.__spectator.frame(t);
+        return;
+      }
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      // Smooth Camera Tracking (Follows current climbed stair)
+      cam.x += (cam.targetX - cam.x) * 0.08;
+      cam.y += (cam.targetY - cam.y) * 0.08;
+      updateCameraRig(t);
+
+      // Update Star-Pou Jump / Fall Physics
       star.scaleX += (1 - star.scaleX) * 0.15;
       star.scaleY += (1 - star.scaleY) * 0.15;
       star._yaw = Math.sin(t * 0.0016) * 0.14;
@@ -1571,18 +1601,8 @@
         if (star.chosenPlat) star.chosenPlat.fallY += Math.max(0, star.vy * 0.9);
       }
 
-      // 6. Karakter
-      drawStarPou(t);
-
-      // 7. Konfeti
-      drawParticles();
-
-      // 8. Teks melayang
-      drawFloatingTexts();
-
-      // 9. Awan depan + vignette
-      drawForegroundClouds();
-      drawVignette();
+      // 1-8. Scene 3D: langit, pulau, panduan, platform, karakter, efek, vignette
+      drawWorldScene(t);
     }
 
     if (typeof updateCameraRig === 'function') updateCameraRig(0);

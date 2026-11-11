@@ -314,6 +314,19 @@
     </div>
   </div>
 </div>
+<!-- @vs-only -->
+<style>
+  /* Mode penonton admin: HUD game disembunyikan; spectator menggambar UI-nya
+     sendiri di canvas (grid kamera tim). */
+  body.spectate-mode .hud,
+  body.spectate-mode .question-container,
+  body.spectate-mode .bottom-bar,
+  body.spectate-mode #modal,
+  body.spectate-mode #vs-bar,
+  body.spectate-mode #vs-leaderboard,
+  body.spectate-mode #vs-modal { display: none !important; }
+  body.spectate-mode canvas { cursor: default; }
+</style>
 <!-- @/vs-only -->
 
   <canvas id="gameCanvas"></canvas>
@@ -824,7 +837,10 @@
     }
 
     // --- 6.1 Kamera rig: kamera mengikuti pijakan saat bintang naik ---
-    function updateCameraRig(t) {
+    // zoom = 1 -> framing normal pemain; >1 mendekat (zoom in); <1 menjauh.
+    function updateCameraRig(t, zoom) {
+      const zoomRaw = Number(zoom);
+      const zoomK = isFinite(zoomRaw) ? Math.max(0.6, Math.min(2.4, zoomRaw)) : 1;
       const focal = (H / 2) / Math.tan((CAM_FOV_DEG * DEG) / 2);
       const platHalf = Math.min(250, STEP_X * 1.7) / 2;
       // Layar pendek (mis. HP landscape) perlu skala kamera lebih kecil supaya
@@ -832,7 +848,7 @@
       const sVert = ((H >= 520 ? 0.33 : 0.30) * H) / (STEP_Y * 0.86);
       const sHoriz = (0.46 * W) / (STEP_X + platHalf);
       const s = Math.max(0.5, Math.min(1.75, Math.min(sVert, sHoriz)));
-      const dist = Math.max(340, focal / s);
+      const dist = Math.max(340, focal / s) / zoomK;
       const AU = STEP_Y * 0.86;
       const aim = { x: cam.x, y: -cam.y + AU, z: 0 };
       const orbit = Math.sin((t || 0) * 0.00018) * 3 * DEG;
@@ -854,6 +870,7 @@
       camera3D.up = vCross(camera3D.right, fwd);
       camera3D.pitch = Math.asin(Math.max(-1, Math.min(1, -fwd.y)));
       camera3D.scale = focal / dist;
+      camera3D.zoom = zoomK;
     }
 
     // --- 6.2 Proyeksi & clipping ---
@@ -1599,15 +1616,11 @@
     }
 
     // --- 6.11 Loop utama ---
-    function animate(t) {
-      requestAnimationFrame(animate);
-
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-
-      // Smooth Camera Tracking (Follows current climbed stair)
-      cam.x += (cam.targetX - cam.x) * 0.08;
-      cam.y += (cam.targetY - cam.y) * 0.08;
-      updateCameraRig(t);
+    // Menggambar satu scene penuh ke viewport aktif (W x H) memakai state global.
+    // opts.zoom dipakai mode penonton (admin) untuk zoom per kamera pemain.
+    function drawWorldScene(t, opts) {
+      const o = opts || {};
+      updateCameraRig(t, o.zoom);
 
       // 1. Langit, bintang, planet & awan latar
       drawSkyAndEnvironment(t);
@@ -1631,7 +1644,37 @@
         drawPlatform(p, p === leftOptionPlat || p === rightOptionPlat);
       }
 
-      // 5. Update Star-Pou Jump / Fall Physics
+      // 5. Karakter
+      drawStarPou(t);
+
+      // 6. Konfeti
+      drawParticles();
+
+      // 7. Teks melayang
+      drawFloatingTexts();
+
+      // 8. Awan depan + vignette
+      drawForegroundClouds();
+      drawVignette();
+    }
+
+    function animate(t) {
+      requestAnimationFrame(animate);
+
+      // Mode penonton admin: renderer yang sama dipakai untuk banyak kamera tim.
+      if (window.__spectator && typeof window.__spectator.frame === 'function') {
+        window.__spectator.frame(t);
+        return;
+      }
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+      // Smooth Camera Tracking (Follows current climbed stair)
+      cam.x += (cam.targetX - cam.x) * 0.08;
+      cam.y += (cam.targetY - cam.y) * 0.08;
+      updateCameraRig(t);
+
+      // Update Star-Pou Jump / Fall Physics
       star.scaleX += (1 - star.scaleX) * 0.15;
       star.scaleY += (1 - star.scaleY) * 0.15;
       star._yaw = Math.sin(t * 0.0016) * 0.14;
@@ -1659,18 +1702,8 @@
         if (star.chosenPlat) star.chosenPlat.fallY += Math.max(0, star.vy * 0.9);
       }
 
-      // 6. Karakter
-      drawStarPou(t);
-
-      // 7. Konfeti
-      drawParticles();
-
-      // 8. Teks melayang
-      drawFloatingTexts();
-
-      // 9. Awan depan + vignette
-      drawForegroundClouds();
-      drawVignette();
+      // 1-8. Scene 3D: langit, pulau, panduan, platform, karakter, efek, vignette
+      drawWorldScene(t);
     }
 
     if (typeof updateCameraRig === 'function') updateCameraRig(0);
@@ -1730,15 +1763,19 @@ function vsConnect(){
           ws.send(JSON.stringify({type:'rejoin_host', code:VS.code, adminPassword: pass?pass.value:''}));
         }
       }catch(e){}
+      // Admin spectator: daftar ulang sebagai observer setiap reconnect
+      try{ if (SPEC.active) specSendSpectate(); }catch(e){}
     };
     ws.onclose = ()=>{
       clearTimeout(failTimer);
       if(VS.ws===ws) VS.ws=null;
-      if(opened && (VS.code || VS.teamId || VS.enabled)) setTimeout(vsConnect, 2000);
+      if(opened && (VS.code || VS.teamId || VS.enabled || SPEC.active)) setTimeout(vsConnect, 2000);
     };
     ws.onerror = ()=> {};
     ws.onmessage = (ev)=>{
     let msg; try{ msg=JSON.parse(ev.data);}catch{return;}
+    // Mode penonton: semua pesan diproses spectator, bukan sebagai pemain/host.
+    if (SPEC.active) { vsSpecOnMessage(msg); return; }
     if(msg.type==='room_created'){
       VS.code = msg.code; VS.isHost = true;
       document.getElementById('vs-code-display').textContent = VS.code;
@@ -1931,6 +1968,8 @@ function vsHandleGameStart(msg){
   // VS uses same startGame but we acak opsi: hook via flag
   window._vsMateri = materi;
   startGame();
+  // Kirim telemetri posisi/soal ke server supaya admin bisa menonton live.
+  vsStartTelemetry();
 }
 
 // Hook score: whenever score/floor changes in VS, push to server
@@ -1958,6 +1997,937 @@ updateHUD = function(){
   const c=u.get('code');
   if(c){ const el=document.getElementById('vs-join-code'); if(el) el.value=c.toUpperCase(); }
 })();
+
+// ================= TELEMETRI PEMAIN (untuk penonton admin) =================
+// Selama mabar, klien mengirim snapshot ringkas ~8x/detik ke server.
+// Server meneruskannya HANYA ke admin yang menonton room tersebut.
+const VS_TELEMETRY_MS = 125;
+let vsTelemTimer = null;
+
+function vsRound2(n) {
+  const v = Number(n);
+  return isFinite(v) ? Math.round(v * 100) / 100 : 0;
+}
+function vsOptionSnapshot(p) {
+  if (!p) return null;
+  return {
+    x: vsRound2(p.wx), y: vsRound2(p.wy),
+    t: String(p.text || '').slice(0, 80),
+    ok: p.isCorrect ? 1 : 0,
+    st: p.status === 'correct' ? 'c' : p.status === 'wrong' ? 'w' : 'n',
+    br: p.broken ? 1 : 0,
+    fy: vsRound2(p.fallY || 0),
+  };
+}
+function vsCollectPlayerState() {
+  const base = (typeof currentBasePlat !== 'undefined') ? currentBasePlat : null;
+  const snap = {
+    f: (typeof floorLevel === 'number' ? floorLevel : 0) | 0,
+    sc: (typeof score === 'number' ? score : 0) | 0,
+    stk: (typeof streak === 'number' ? streak : 0) | 0,
+    cx: vsRound2(cam.x), cy: vsRound2(cam.y),
+    sx: vsRound2(star.wx), sy: vsRound2(star.wy),
+    ss: star.state || 'idle', se: star.expression || 'happy',
+    sr: vsRound2(star.rotation || 0), sk: vsRound2(star.progress || 0),
+    kx: vsRound2(star.scaleX || 1), ky: vsRound2(star.scaleY || 1),
+    b: base ? [vsRound2(base.wx), vsRound2(base.wy)] : null,
+    l: vsOptionSnapshot(leftOptionPlat),
+    r: vsOptionSnapshot(rightOptionPlat),
+    tr: letitedPlatforms.slice(-8).map((p) => [vsRound2(p.wx), vsRound2(p.wy), (p.level || 0) | 0, p.status || 'correct']),
+    q: null,
+  };
+  const qText = document.getElementById('q-text');
+  const qEmoji = document.getElementById('q-emoji');
+  if (qText && qEmoji) snap.q = { t: String(qText.textContent || '').slice(0, 160), e: String(qEmoji.textContent || '').slice(0, 8) };
+  return snap;
+}
+function vsPushPlayerState() {
+  if (!VS.enabled || !gameRunning) return;
+  if (!VS.ws || VS.ws.readyState !== 1) return;
+  try { VS.ws.send(JSON.stringify({ type: 'player_state', s: vsCollectPlayerState() })); } catch (e) {}
+}
+function vsStartTelemetry() {
+  vsStopTelemetry();
+  vsTelemTimer = setInterval(vsPushPlayerState, VS_TELEMETRY_MS);
+}
+function vsStopTelemetry() {
+  if (vsTelemTimer) { try { clearInterval(vsTelemTimer); } catch (e) {} vsTelemTimer = null; }
+}
+
+// ================= MODE PENONTON ADMIN (SPECTATOR) =================
+// Admin membuka /game.html?code=KODE&spectate=1 (tombol "Tonton Live" di panel
+// admin). Tiap tim dapat satu pane kamera hasil render 3D yang sama, jadi admin
+// melihat sudut pandang tiap pemain secara langsung (bukan video stream).
+// Fitur: tab tim, mode fokus, zoom in/out per pemain, statistik & papan soal.
+const SPEC_MIN_FRAME_MS = 30;   // ~30 fps: beberapa kamera software sekaligus
+const SPEC_STALE_MS = 4000;
+const SPEC_MIN_ZOOM = 0.7;
+const SPEC_MAX_ZOOM = 2.4;
+const SPEC_TAU = Math.PI * 2;
+
+const SPEC = {
+  active: false, connected: false, code: null, pass: '',
+  status: 'lobby', startedAt: null, duration: 0,
+  teams: new Map(), order: [], selectedId: null, focus: false,
+  hover: null, err: '',
+  lastFrameAt: 0, lastDrawAt: 0, fps: 0, layout: null,
+};
+
+const specCloudCache = new Map();
+
+function specStoredPass() {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+      return String(sessionStorage.getItem('sev7en-admin-pass') || '');
+    }
+  } catch (e) {}
+  return '';
+}
+function specStorePass(pass) {
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage && pass) sessionStorage.setItem('sev7en-admin-pass', String(pass));
+  } catch (e) {}
+}
+function specRoundRect(x, y, w, h, r) {
+  const rad = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
+}
+function specSetFont(size, weight) {
+  ctx.font = (weight || 800) + ' ' + Math.round(size) + 'px "Segoe UI", Tahoma, sans-serif';
+}
+function specText(text, x, y, size, weight, color, align, baseline) {
+  specSetFont(size, weight);
+  ctx.fillStyle = color || '#f8fafc';
+  ctx.textAlign = align || 'left';
+  ctx.textBaseline = baseline || 'middle';
+  ctx.fillText(String(text), x, y);
+}
+function specFitText(text, maxW, size, weight) {
+  const s = String(text == null ? '' : text);
+  if (!(maxW > 8)) return s;
+  specSetFont(size, weight);
+  if (ctx.measureText(s).width <= maxW) return s;
+  let cut = s;
+  while (cut.length > 1 && ctx.measureText(cut + '…').width > maxW) cut = cut.slice(0, -1);
+  return cut + '…';
+}
+function specRectHit(r, x, y) {
+  return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+}
+function specStatusText(now) {
+  if (SPEC.status === 'playing') {
+    const d = Number(SPEC.duration) || 0;
+    const st = Number(SPEC.startedAt) || 0;
+    if (!st || d >= 9000) return 'BERMAIN';
+    const remain = Math.max(0, Math.min(d, Math.round(d - (now - st) / 1000)));
+    return 'BERMAIN ' + String(Math.floor(remain / 60)).padStart(2, '0') + ':' + String(remain % 60).padStart(2, '0');
+  }
+  if (SPEC.status === 'ended') return 'SELESAI';
+  return 'LOBBY';
+}
+
+function specDefaultRemote() {
+  return {
+    base: { wx: 0, wy: 0, w: 220, h: 30, isStart: true, level: 0, status: 'correct', fallY: 0 },
+    left: { wx: -230, wy: -210, w: 250, h: 32, text: '', isCorrect: true, status: 'neutral', broken: false, fallY: 0, side: 'left', level: 1 },
+    right: { wx: 230, wy: -210, w: 250, h: 32, text: '', isCorrect: false, status: 'neutral', broken: false, fallY: 0, side: 'right', level: 1 },
+    trail: [],
+  };
+}
+function specEnsureTeam(id, name) {
+  if (!id) return null;
+  let team = SPEC.teams.get(id);
+  if (!team) {
+    team = {
+      id: id, name: String(name || 'TIM').slice(0, 24),
+      score: 0, floor: 0, streak: 0,
+      online: true, lastAt: 0, snap: null, zoom: 1,
+      prevFloor: null, prevStreak: null,
+      event: '', eventAt: 0,
+      view: { camX: 0, camY: 0, starX: 0, starY: -48, rot: 0, scaleX: 1, scaleY: 1 },
+      target: null,
+      remote: specDefaultRemote(),
+    };
+    SPEC.teams.set(id, team);
+    SPEC.order.push(id);
+    if (!SPEC.selectedId) SPEC.selectedId = id;
+  } else if (name) {
+    team.name = String(name).slice(0, 24);
+  }
+  return team;
+}
+function specSyncRoom(room) {
+  if (!room || !Array.isArray(room.teams)) return;
+  for (const info of room.teams) {
+    const team = specEnsureTeam(info.id, info.name);
+    if (!team) continue;
+    team.name = String(info.name || team.name).slice(0, 24);
+    if (typeof info.score === 'number' && isFinite(info.score)) team.score = info.score | 0;
+    if (typeof info.floor === 'number' && isFinite(info.floor)) team.floor = info.floor | 0;
+    if (typeof info.streak === 'number' && isFinite(info.streak)) team.streak = info.streak | 0;
+  }
+  if (room.status) SPEC.status = room.status;
+}
+function specApplyOption(opt, data, side, level) {
+  if (!opt) return;
+  const oldX = opt.wx, oldY = opt.wy;
+  if (!data || typeof data !== 'object') {
+    opt.wx = 0; opt.wy = 0; opt.text = ''; opt.status = 'neutral';
+    opt.isCorrect = false; opt.broken = false; opt.fallY = 0;
+  } else {
+    opt.wx = Number(data.x) || 0;
+    opt.wy = Number(data.y) || 0;
+    opt.text = String(data.t || '').slice(0, 80);
+    opt.isCorrect = !!data.ok;
+    opt.status = data.st === 'c' ? 'correct' : data.st === 'w' ? 'wrong' : 'neutral';
+    opt.broken = !!data.br;
+    opt.fallY = Number(data.fy) || 0;
+  }
+  opt.side = side;
+  opt.level = level;
+  if (Math.abs(oldX - opt.wx) > 0.5 || Math.abs(oldY - opt.wy) > 0.5) opt._mesh3d = null;
+}
+function specApplySnapshot(team, s) {
+  if (!team || !s || typeof s !== 'object') return;
+  const now = Date.now();
+  const floor = Math.max(0, Number(s.f) || 0);
+  const streak = Math.max(0, Number(s.stk) || 0);
+  team.score = Math.max(0, Number(s.sc) || 0);
+  team.floor = floor;
+  team.streak = streak;
+  team.snap = s;
+  team.lastAt = now;
+  team.online = true;
+  if (team.prevFloor != null) {
+    if (floor > team.prevFloor) { team.event = '⬆ NAIK +' + (floor - team.prevFloor); team.eventAt = now; }
+    else if (streak === 0 && (team.prevStreak || 0) > 0) { team.event = '💥 SALAH'; team.eventAt = now; }
+  }
+  team.prevFloor = floor;
+  team.prevStreak = streak;
+  team.target = {
+    camX: Number(s.cx) || 0, camY: Number(s.cy) || 0,
+    starX: Number(s.sx) || 0, starY: Number(s.sy) || -48,
+    rot: Number(s.sr) || 0,
+    scaleX: Number(s.kx) || 1, scaleY: Number(s.ky) || 1,
+    state: String(s.ss || 'idle'), expr: String(s.se || 'happy'),
+  };
+  const remote = team.remote;
+  if (Array.isArray(s.b) && s.b.length >= 2) {
+    remote.base.wx = Number(s.b[0]) || 0;
+    remote.base.wy = Number(s.b[1]) || 0;
+    remote.base.level = floor;
+    remote.base.isStart = floor === 0;
+    remote.base.status = 'correct';
+    remote.base.fallY = 0;
+  }
+  specApplyOption(remote.left, s.l, 'left', floor + 1);
+  specApplyOption(remote.right, s.r, 'right', floor + 1);
+  const tr = Array.isArray(s.tr) ? s.tr.slice(-8) : [];
+  while (remote.trail.length < tr.length) remote.trail.push({ wx: 0, wy: 0, w: 220, h: 30, level: 0, status: 'correct', fallY: 0 });
+  if (remote.trail.length > tr.length) remote.trail.length = tr.length;
+  for (let i = 0; i < tr.length; i++) {
+    const row = tr[i], p = remote.trail[i];
+    if (!Array.isArray(row)) continue;
+    const nx = Number(row[0]) || 0, ny = Number(row[1]) || 0;
+    if (Math.abs(p.wx - nx) > 0.5 || Math.abs(p.wy - ny) > 0.5) p._mesh3d = null;
+    p.wx = nx; p.wy = ny;
+    p.level = Math.max(0, Number(row[2]) || 0);
+    p.status = row[3] === 'wrong' ? 'wrong' : row[3] === 'neutral' ? 'neutral' : 'correct';
+    p.isStart = p.level === 0;
+    p.fallY = 0;
+  }
+}
+function specSelectedTeam() {
+  return SPEC.teams.get(SPEC.selectedId) || SPEC.teams.get(SPEC.order[0]) || null;
+}
+function specSelect(teamId) {
+  if (teamId && SPEC.teams.has(teamId)) SPEC.selectedId = teamId;
+}
+function specToggleFocus() {
+  if (!SPEC.selectedId) return;
+  SPEC.focus = !SPEC.focus;
+}
+function specSetZoom(teamId, zoom) {
+  const team = teamId ? SPEC.teams.get(teamId) : null;
+  if (!team) return;
+  const n = Number(zoom);
+  if (!isFinite(n)) return;
+  team.zoom = Math.max(SPEC_MIN_ZOOM, Math.min(SPEC_MAX_ZOOM, Math.round(n * 100) / 100));
+}
+function specZoomBy(teamId, delta) {
+  const team = teamId ? SPEC.teams.get(teamId) : null;
+  if (!team) return;
+  specSetZoom(teamId, (team.zoom || 1) + Number(delta || 0));
+}
+function specCloudsFor(camY) {
+  const band = Math.round((Number(camY) || 0) / 900);
+  let arr = specCloudCache.get(band);
+  if (arr) return arr;
+  const centerY = band * 900;
+  arr = [];
+  for (let i = 0; i < 16; i++) {
+    arr.push({
+      offsetX: (Math.random() - 0.5) * 2600,
+      worldY: centerY + 620 - i * 190 - Math.random() * 120,
+      scale: 0.6 + Math.random() * 0.7,
+      speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1),
+      worldZ: -(800 + Math.random() * 2000),
+    });
+  }
+  if (specCloudCache.size > 14) specCloudCache.delete(specCloudCache.keys().next().value);
+  specCloudCache.set(band, arr);
+  return arr;
+}
+
+// --- Layout: top bar (LIVE, kode, status, tombol), tab tim, grid pane, info bar
+function specComputeLayout(width, height) {
+  const vw = Math.max(320, Number(width) || 0);
+  const vh = Math.max(240, Number(height) || 0);
+  const pad = Math.max(8, Math.min(18, Math.round(Math.min(vw, vh) * 0.014)));
+  const topH = Math.max(50, Math.min(78, Math.round(vh * 0.078)));
+  const tabH = Math.max(42, Math.min(62, Math.round(vh * 0.062)));
+  const infoH = Math.max(74, Math.min(112, Math.round(vh * 0.135)));
+  const gridX = pad, gridY = topH + tabH + 6;
+  const gridW = vw - pad * 2;
+  const gridH = Math.max(80, vh - gridY - infoH - pad);
+  const ids = SPEC.focus && SPEC.selectedId ? [SPEC.selectedId] : SPEC.order.slice();
+  const n = ids.length;
+  const gap = Math.max(6, Math.min(14, Math.round(Math.min(gridW, gridH) * 0.018)));
+  let cols, rows;
+  if (SPEC.focus || n <= 1) { cols = 1; rows = 1; }
+  else if (n === 2) { cols = 2; rows = 1; }
+  else if (n <= 4) { cols = 2; rows = 2; }
+  else if (n <= 6) { cols = 3; rows = 2; }
+  else if (n <= 9) { cols = 3; rows = 3; }
+  else { cols = 4; rows = Math.ceil(n / 4); }
+  const paneW = (gridW - gap * (cols - 1)) / cols;
+  const paneH = (gridH - gap * (rows - 1)) / rows;
+  const panes = [];
+  for (let i = 0; i < ids.length; i++) {
+    const col = i % cols, row = Math.floor(i / cols);
+    const x = gridX + col * (paneW + gap);
+    const y = gridY + row * (paneH + gap);
+    const headerH = Math.max(26, Math.min(46, Math.round(paneH * 0.13)));
+    const btnW = Math.max(22, Math.min(34, Math.round(headerH * 0.8)));
+    const btnH = Math.max(16, Math.min(26, Math.round(headerH * 0.64)));
+    const btnY = y + (headerH - btnH) / 2;
+    const right = x + paneW - 4;
+    const zoomIn = { x: right - btnW, y: btnY, w: btnW, h: btnH };
+    const zoomReset = { x: zoomIn.x - btnW - 4, y: btnY, w: btnW + 14, h: btnH };
+    const zoomOut = { x: zoomReset.x - btnW - 4, y: btnY, w: btnW, h: btnH };
+    panes.push({ teamId: ids[i], x: x, y: y, w: paneW, h: paneH, headerH: headerH, zoomIn: zoomIn, zoomOut: zoomOut, zoomReset: zoomReset });
+  }
+  const tabs = [];
+  const tn = Math.max(1, SPEC.order.length);
+  const tabGap = 6;
+  const availW = vw - pad * 2;
+  let tabW = Math.floor((availW - tabGap * (tn - 1)) / tn);
+  tabW = Math.max(56, Math.min(210, tabW));
+  if (tabW * tn + tabGap * (tn - 1) > availW) tabW = Math.max(44, Math.floor((availW - tabGap * (tn - 1)) / tn));
+  for (let i = 0; i < SPEC.order.length; i++) {
+    tabs.push({ teamId: SPEC.order[i], x: pad + i * (tabW + tabGap), y: topH + 4, w: tabW, h: tabH - 8 });
+  }
+  const barBtnH = Math.max(24, Math.min(34, Math.round(topH * 0.52)));
+  const exitBtn = { x: vw - pad - 96, y: (topH - barBtnH) / 2, w: 96, h: barBtnH };
+  const modeBtn = { x: exitBtn.x - 100 - 8, y: exitBtn.y, w: 100, h: barBtnH };
+  return {
+    W: vw, H: vh, pad: pad, topH: topH, tabH: tabH, infoH: infoH,
+    grid: { x: gridX, y: gridY, w: gridW, h: gridH },
+    panes: panes, tabs: tabs, exit: exitBtn, mode: modeBtn,
+    info: { x: pad, y: vh - infoH, w: vw - pad * 2, h: infoH - pad },
+  };
+}
+function specHitTest(x, y) {
+  const L = SPEC.layout || specComputeLayout(W, H);
+  if (!L) return null;
+  if (specRectHit(L.exit, x, y)) return { kind: 'exit' };
+  if (specRectHit(L.mode, x, y)) return { kind: 'mode' };
+  for (const tb of L.tabs) if (specRectHit(tb, x, y)) return { kind: 'tab', teamId: tb.teamId };
+  for (const p of L.panes) {
+    if (specRectHit(p.zoomIn, x, y)) return { kind: 'zoomIn', teamId: p.teamId };
+    if (specRectHit(p.zoomOut, x, y)) return { kind: 'zoomOut', teamId: p.teamId };
+    if (specRectHit(p.zoomReset, x, y)) return { kind: 'zoomReset', teamId: p.teamId };
+    if (specRectHit(p, x, y)) return { kind: 'pane', teamId: p.teamId };
+  }
+  return null;
+}
+
+// --- Interpolasi: telemetri 8 Hz, gerakan dihaluskan di sisi admin
+function specAdvanceViews(dt) {
+  const k = 1 - Math.exp(-Math.max(1, dt) / 80);
+  for (const team of SPEC.teams.values()) {
+    if (!team.target) continue;
+    const v = team.view, tg = team.target;
+    v.camX += (tg.camX - v.camX) * k;
+    v.camY += (tg.camY - v.camY) * k;
+    v.starX += (tg.starX - v.starX) * k;
+    v.starY += (tg.starY - v.starY) * k;
+    v.rot += (tg.rot - v.rot) * k;
+    v.scaleX += (tg.scaleX - v.scaleX) * k;
+    v.scaleY += (tg.scaleY - v.scaleY) * k;
+  }
+}
+
+// --- Gambar scene 3D satu kamera tim ke dalam rect pane (clip + transform)
+function specDrawPaneScene(p, team, t) {
+  const v = team.view, tg = team.target;
+  ctx.save();
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.beginPath();
+  ctx.rect(p.x, p.y, p.w, p.h);
+  ctx.clip();
+  ctx.setTransform(DPR, 0, 0, DPR, p.x * DPR, p.y * DPR);
+  const saved = {
+    W: W, H: H, STEP_X: STEP_X,
+    camX: cam.x, camY: cam.y,
+    star: {
+      wx: star.wx, wy: star.wy, rotation: star.rotation, scaleX: star.scaleX, scaleY: star.scaleY,
+      state: star.state, expression: star.expression, progress: star.progress, _yaw: star._yaw, _bob: star._bob,
+    },
+    base: currentBasePlat, left: leftOptionPlat, right: rightOptionPlat,
+    trail: letitedPlatforms, particles: particles, texts: floatingTexts, clouds: bgClouds,
+  };
+  try {
+    W = p.w; H = p.h; STEP_X = 230;
+    cam.x = v.camX; cam.y = v.camY;
+    star.wx = v.starX; star.wy = v.starY; star.rotation = v.rot;
+    star.scaleX = v.scaleX; star.scaleY = v.scaleY;
+    star.state = tg.state; star.expression = tg.expr;
+    star.progress = 0; star._yaw = 0;
+    currentBasePlat = team.remote.base;
+    leftOptionPlat = team.remote.left;
+    rightOptionPlat = team.remote.right;
+    letitedPlatforms = team.remote.trail;
+    particles = [];
+    floatingTexts = [];
+    bgClouds = specCloudsFor(v.camY);
+    drawWorldScene(t, { zoom: team.zoom });
+  } finally {
+    W = saved.W; H = saved.H; STEP_X = saved.STEP_X;
+    cam.x = saved.camX; cam.y = saved.camY;
+    star.wx = saved.star.wx; star.wy = saved.star.wy; star.rotation = saved.star.rotation;
+    star.scaleX = saved.star.scaleX; star.scaleY = saved.star.scaleY;
+    star.state = saved.star.state; star.expression = saved.star.expression;
+    star.progress = saved.star.progress; star._yaw = saved.star._yaw; star._bob = saved.star._bob;
+    currentBasePlat = saved.base; leftOptionPlat = saved.left; rightOptionPlat = saved.right;
+    letitedPlatforms = saved.trail; particles = saved.particles; floatingTexts = saved.texts;
+    bgClouds = saved.clouds;
+    ctx.restore();
+  }
+}
+function specPaneButton(rect, label, hovered) {
+  specRoundRect(rect.x, rect.y, rect.w, rect.h, 6);
+  ctx.fillStyle = hovered ? 'rgba(251,191,36,0.35)' : 'rgba(15,23,42,0.72)';
+  ctx.fill();
+  ctx.strokeStyle = hovered ? '#fbbf24' : 'rgba(148,163,184,0.45)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  specText(label, rect.x + rect.w / 2, rect.y + rect.h / 2, Math.max(10, rect.h * 0.62), 900, '#f8fafc', 'center');
+}
+function specDrawPane(p, team, t, now) {
+  const online = team.online && (now - team.lastAt) < SPEC_STALE_MS;
+  const hasData = !!(team.snap && team.target);
+  if (hasData) {
+    specDrawPaneScene(p, team, t);
+  } else {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.fillStyle = '#0a1020';
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+    specText('KAMERA ' + String(team.name || '').toUpperCase(), p.x + p.w / 2, p.y + p.h * 0.42, Math.max(11, Math.min(18, p.h * 0.10)), 900, '#334155', 'center');
+    specText(SPEC.status === 'playing' ? 'Menunggu data pemain…' : 'Tim belum mulai bermain', p.x + p.w / 2, p.y + p.h * 0.54, Math.max(9, Math.min(14, p.h * 0.075)), 700, '#475569', 'center');
+  }
+  // Header pane
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const hh = p.headerH;
+  const grad = ctx.createLinearGradient(0, p.y, 0, p.y + hh * 1.4);
+  grad.addColorStop(0, 'rgba(4,8,18,0.92)');
+  grad.addColorStop(1, 'rgba(4,8,18,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(p.x, p.y, p.w, hh * 1.4);
+  ctx.beginPath();
+  ctx.arc(p.x + 11, p.y + hh / 2, Math.max(3, hh * 0.11), 0, SPEC_TAU);
+  ctx.fillStyle = online ? '#22c55e' : '#ef4444';
+  ctx.fill();
+  const nameSize = Math.max(10, Math.min(18, hh * 0.44));
+  const nameMax = Math.max(40, p.w - 150);
+  specText(specFitText(team.name, nameMax, nameSize, 900), p.x + 20, p.y + hh * 0.34, nameSize, 900, '#f8fafc');
+  const statSize = Math.max(8, Math.min(12, hh * 0.28));
+  const statText = team.score + ' pts · ' + (team.floor * 100) + 'm · x' + team.streak;
+  specText(specFitText(statText, nameMax + 40, statSize, 700), p.x + 20, p.y + hh * 0.72, statSize, 700, '#7dd3fc');
+  // Zoom controls per pemain
+  const hov = SPEC.hover || {};
+  specPaneButton(p.zoomOut, '−', hov.kind === 'zoomOut' && hov.teamId === team.id);
+  specPaneButton(p.zoomReset, Math.round((team.zoom || 1) * 100) + '%', hov.kind === 'zoomReset' && hov.teamId === team.id);
+  specPaneButton(p.zoomIn, '+', hov.kind === 'zoomIn' && hov.teamId === team.id);
+  // Event terakhir (naik / salah)
+  if (team.event && now - team.eventAt < 1800) {
+    const fade = 1 - (now - team.eventAt) / 1800;
+    const chipW = Math.max(70, p.w * 0.3);
+    const chipH = Math.max(16, Math.min(24, hh * 0.6));
+    const cx = p.x + p.w - 8 - chipW, cy = p.y + p.h - 10 - chipH;
+    specRoundRect(cx, cy, chipW, chipH, chipH / 2);
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.fillStyle = team.event.indexOf('SALAH') >= 0 ? 'rgba(239,68,68,0.85)' : 'rgba(34,197,94,0.85)';
+    ctx.fill();
+    specText(team.event, cx + chipW / 2, cy + chipH / 2, Math.max(8, chipH * 0.55), 900, '#f8fafc', 'center');
+    ctx.globalAlpha = 1;
+  }
+  // Border seleksi
+  if (SPEC.selectedId === team.id) {
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(p.x + 1.5, p.y + 1.5, p.w - 3, p.h - 3);
+  } else {
+    ctx.strokeStyle = 'rgba(148,163,184,0.28)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
+  }
+  if (!online && hasData) {
+    specRoundRect(p.x + 8, p.y + p.h - 26, 74, 18, 9);
+    ctx.fillStyle = 'rgba(239,68,68,0.85)';
+    ctx.fill();
+    specText('OFFLINE', p.x + 45, p.y + p.h - 17, 10, 900, '#fff', 'center');
+  }
+}
+function specDrawButton(rect, label, active, hovered) {
+  specRoundRect(rect.x, rect.y, rect.w, rect.h, 8);
+  ctx.fillStyle = active ? 'rgba(251,191,36,0.9)' : hovered ? 'rgba(148,163,184,0.30)' : 'rgba(148,163,184,0.16)';
+  ctx.fill();
+  ctx.strokeStyle = active ? '#fbbf24' : 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  specText(label, rect.x + rect.w / 2, rect.y + rect.h / 2, Math.max(10, rect.h * 0.42), 900, active ? '#0f172a' : '#e2e8f0', 'center');
+}
+function specDrawTopBar(L, t, now) {
+  const topH = L.topH, pad = L.pad, cy = topH / 2;
+  ctx.fillStyle = '#0b1224';
+  ctx.fillRect(0, 0, W, topH);
+  ctx.fillStyle = 'rgba(251,191,36,0.9)';
+  ctx.fillRect(0, topH - 2, W, 2);
+  const pulse = 0.45 + 0.55 * Math.abs(Math.sin(t * 0.004));
+  ctx.beginPath();
+  ctx.arc(pad + 8, cy, Math.max(5, topH * 0.10), 0, SPEC_TAU);
+  ctx.fillStyle = SPEC.connected ? 'rgba(239,68,68,' + pulse.toFixed(2) + ')' : '#64748b';
+  ctx.fill();
+  let x = pad + 22;
+  const titleSize = Math.max(11, Math.min(20, topH * 0.34));
+  const title = specFitText('TONTON LIVE', Math.max(60, W * 0.17), titleSize, 900);
+  specText(title, x, cy, titleSize, 900, '#f8fafc');
+  specSetFont(titleSize, 900);
+  x += ctx.measureText(title).width + 12;
+  const codeSize = Math.max(9, Math.min(14, topH * 0.25));
+  const codeTxt = 'KODE ' + (SPEC.code || '—');
+  specSetFont(codeSize, 900);
+  const codeW = ctx.measureText(codeTxt).width + 20;
+  const codeH = Math.max(20, topH * 0.46);
+  specRoundRect(x, cy - codeH / 2, codeW, codeH, codeH / 2);
+  ctx.fillStyle = 'rgba(251,191,36,0.14)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(251,191,36,0.55)';
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+  specText(codeTxt, x + codeW / 2, cy, codeSize, 900, '#fbbf24', 'center');
+  x += codeW + 12;
+  const statusTxt = specStatusText(now);
+  const statusMax = Math.max(40, L.mode.x - x - 12);
+  const statusSize = Math.max(10, Math.min(14, topH * 0.26));
+  const statusText = specFitText(statusTxt, statusMax, statusSize, 900);
+  specText(statusText, x, cy, statusSize, 900, SPEC.status === 'playing' ? '#4ade80' : SPEC.status === 'ended' ? '#94a3b8' : '#60a5fa');
+  const hov = SPEC.hover || {};
+  specDrawButton(L.mode, SPEC.focus ? '▦ GRID' : '⛶ FOKUS', false, hov.kind === 'mode');
+  specDrawButton(L.exit, '✕ KELUAR', false, hov.kind === 'exit');
+}
+function specDrawTabs(L, now) {
+  if (!L.tabs.length) return;
+  ctx.fillStyle = 'rgba(15,23,42,0.55)';
+  ctx.fillRect(0, L.topH, W, L.tabH);
+  const hov = SPEC.hover || {};
+  for (const tb of L.tabs) {
+    const team = SPEC.teams.get(tb.teamId);
+    if (!team) continue;
+    const selected = SPEC.selectedId === tb.teamId;
+    const hovered = hov.kind === 'tab' && hov.teamId === tb.teamId;
+    specRoundRect(tb.x, tb.y, tb.w, tb.h, Math.min(10, tb.h * 0.28));
+    ctx.fillStyle = selected ? 'rgba(251,191,36,0.16)' : hovered ? 'rgba(148,163,184,0.20)' : 'rgba(148,163,184,0.07)';
+    ctx.fill();
+    ctx.strokeStyle = selected ? '#fbbf24' : 'rgba(148,163,184,0.25)';
+    ctx.lineWidth = selected ? 2 : 1;
+    ctx.stroke();
+    const online = team.online && (now - team.lastAt) < SPEC_STALE_MS;
+    ctx.beginPath();
+    ctx.arc(tb.x + 10, tb.y + tb.h / 2, 3.5, 0, SPEC_TAU);
+    ctx.fillStyle = online ? '#22c55e' : '#ef4444';
+    ctx.fill();
+    const nameSize = Math.max(9, Math.min(13, tb.h * 0.30));
+    specText(specFitText(team.name, tb.w - 24, nameSize, 800), tb.x + 18, tb.y + tb.h * 0.38, nameSize, 800, '#f8fafc');
+    const subSize = Math.max(8, Math.min(11, tb.h * 0.24));
+    specText(specFitText(team.score + ' pts · ' + (team.floor * 100) + 'm', tb.w - 20, subSize, 700), tb.x + 18, tb.y + tb.h * 0.72, subSize, 700, '#7dd3fc');
+  }
+}
+function specDrawEmptyState(L, now) {
+  const g = L.grid, cx = g.x + g.w / 2, cy = g.y + g.h / 2;
+  ctx.fillStyle = '#0a1020';
+  ctx.fillRect(g.x, g.y, g.w, g.h);
+  const size = Math.max(12, Math.min(22, g.h * 0.06));
+  let msg, sub;
+  if (SPEC.err) { msg = '⚠ ' + SPEC.err; sub = 'Periksa password admin / kode room, lalu muat ulang.'; }
+  else if (!SPEC.connected) { msg = 'Menghubungkan ke room ' + (SPEC.code || '—') + '…'; sub = 'Meminta izin admin untuk menonton live.'; }
+  else if (SPEC.status === 'lobby') { msg = 'Room ' + SPEC.code + ' — menunggu tim join'; sub = 'Bagikan kode ' + SPEC.code + ' ke kelompok. Kamera muncul otomatis.'; }
+  else { msg = 'Room ' + SPEC.code + ' — belum ada tim'; sub = 'Pastikan tim sudah join sebelum host menekan MULAI.'; }
+  const blink = 0.6 + 0.4 * Math.abs(Math.sin(now * 0.003));
+  ctx.beginPath();
+  ctx.arc(cx, cy - size * 2.2, size * 0.75, 0, SPEC_TAU);
+  ctx.fillStyle = SPEC.err ? 'rgba(239,68,68,' + blink + ')' : 'rgba(251,191,36,' + blink + ')';
+  ctx.fill();
+  specText(specFitText(msg, g.w - 40, size, 900), cx, cy - size * 0.4, size, 900, SPEC.err ? '#f87171' : '#e2e8f0', 'center');
+  specText(specFitText(sub, g.w - 40, Math.max(10, size * 0.62), 700), cx, cy + size * 0.9, Math.max(10, size * 0.62), 700, '#8b99ab', 'center');
+}
+function specOptionChip(x, y, maxW, side, data, size) {
+  const has = !!data;
+  const label = (side === 'left' ? '⬅ ' : '➡ ') + (has ? String(data.t || '—') : '—');
+  const mark = has && data.ok ? ' ✓' : has ? ' ✗' : '';
+  const text = label + mark;
+  specSetFont(size, 800);
+  const w = Math.min(maxW, ctx.measureText(text).width + 22);
+  const h = Math.max(20, size * 1.9);
+  specRoundRect(x, y - h / 2, w, h, h / 2);
+  const good = has && data.ok;
+  const bad = has && !data.ok;
+  ctx.fillStyle = good ? 'rgba(34,197,94,0.18)' : bad ? 'rgba(239,68,68,0.16)' : 'rgba(148,163,184,0.12)';
+  ctx.fill();
+  ctx.strokeStyle = good ? 'rgba(74,222,128,0.75)' : bad ? 'rgba(248,113,113,0.7)' : 'rgba(148,163,184,0.35)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  specText(specFitText(text, w - 10, size, 800), x + 10, y, size, 800, good ? '#86efac' : bad ? '#fca5a5' : '#cbd5e1');
+  return w;
+}
+function specDrawInfoBar(L, now) {
+  const info = L.info;
+  specRoundRect(info.x, info.y, info.w, info.h, 12);
+  ctx.fillStyle = 'rgba(15,23,42,0.82)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148,163,184,0.22)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  const team = specSelectedTeam();
+  if (!team) {
+    specText('Pilih tim di tab atas untuk melihat detail soal & statistik.', info.x + 18, info.y + info.h / 2, Math.max(11, Math.min(16, info.h * 0.24)), 700, '#8b99ab');
+    return;
+  }
+  const online = team.online && (now - team.lastAt) < SPEC_STALE_MS;
+  const nameSize = Math.max(12, Math.min(19, info.h * 0.22));
+  specText(specFitText(team.name, info.w * 0.22, nameSize, 900), info.x + 16, info.y + info.h * 0.24, nameSize, 900, '#fbbf24');
+  const statSize = Math.max(9, Math.min(13, info.h * 0.16));
+  const statTxt = (team.score + ' pts · ' + (team.floor * 100) + 'm · streak x' + team.streak + ' · zoom ' + Math.round((team.zoom || 1) * 100) + '% · ' + (online ? 'LIVE' : 'OFFLINE'));
+  specText(specFitText(statTxt, info.w * 0.27, statSize, 700), info.x + 16, info.y + info.h * 0.52, statSize, 700, online ? '#7dd3fc' : '#f87171');
+  specText('1-9 pilih tim · F fokus · G grid · + / − zoom · R reset · Esc keluar', info.x + 16, info.y + info.h - 12, Math.max(8, Math.min(11, info.h * 0.11)), 600, '#64748b');
+  const qx = info.x + info.w * 0.31;
+  const qMax = Math.max(80, info.w - (qx - info.x) - 22);
+  const snap = team.snap || null;
+  const q = snap && snap.q ? snap.q : null;
+  if (q) {
+    const qSize = Math.max(10, Math.min(16, info.h * 0.19));
+    specText(specFitText((q.e || '❓') + '  ' + (q.t || ''), qMax, qSize, 800), qx, info.y + info.h * 0.26, qSize, 800, '#e2e8f0');
+  } else {
+    specText('Menunggu data soal dari ' + team.name + '…', qx, info.y + info.h * 0.26, Math.max(10, Math.min(13, info.h * 0.17)), 700, '#64748b');
+  }
+  if (snap) {
+    const optSize = Math.max(9, Math.min(13, info.h * 0.16));
+    const chipW = specOptionChip(qx, info.y + info.h * 0.63, qMax * 0.48, 'left', snap.l, optSize);
+    specOptionChip(qx + chipW + 10, info.y + info.h * 0.63, Math.max(60, qMax * 0.48), 'right', snap.r, optSize);
+  }
+}
+
+function specRender(t) {
+  if (!SPEC.active) return;
+  const now = Date.now();
+  const dt = Math.min(160, Math.max(6, now - (SPEC.lastFrameAt || now - 33)));
+  SPEC.lastFrameAt = now;
+  const inst = 1000 / Math.max(1, dt);
+  SPEC.fps = SPEC.fps ? SPEC.fps * 0.9 + inst * 0.1 : inst;
+  if (SPEC.lastDrawAt && now - SPEC.lastDrawAt < SPEC_MIN_FRAME_MS) return;
+  SPEC.lastDrawAt = now;
+
+  const L = specComputeLayout(W, H);
+  SPEC.layout = L;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#060a15');
+  bg.addColorStop(1, '#0d1527');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  specDrawTopBar(L, t, now);
+  specDrawTabs(L, now);
+  if (!SPEC.order.length) {
+    specDrawEmptyState(L, now);
+  } else {
+    specAdvanceViews(dt);
+    for (const p of L.panes) {
+      const team = SPEC.teams.get(p.teamId);
+      if (team) specDrawPane(p, team, t, now);
+    }
+  }
+  if (SPEC.err) {
+    const msg = '⚠ ' + SPEC.err;
+    const size = Math.max(10, Math.min(14, L.H * 0.018));
+    specSetFont(size, 800);
+    const w = Math.min(L.W - L.pad * 2, ctx.measureText(msg).width + 28);
+    const h = size * 2.2;
+    const x = (L.W - w) / 2, y = L.tabH + L.topH + 8;
+    specRoundRect(x, y, w, h, h / 2);
+    ctx.fillStyle = 'rgba(127,29,29,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(248,113,113,0.8)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    specText(specFitText(msg, w - 20, size, 800), L.W / 2, y + h / 2, size, 800, '#fecaca', 'center');
+  }
+  specDrawInfoBar(L, now);
+}
+function vsSpecFrame(t) {
+  specRender(t);
+}
+function vsSpecRenderNow(t) {
+  SPEC.lastDrawAt = 0;
+  specRender(typeof t === 'number' ? t : (typeof performance !== 'undefined' ? performance.now() : 0));
+}
+
+// --- Pesan server -> spectator
+function vsSpecOnMessage(msg) {
+  if (!msg || typeof msg !== 'object') return;
+  const type = msg.type;
+  if (type === 'spectate_ok') {
+    SPEC.connected = true;
+    SPEC.err = '';
+    SPEC.code = msg.code || SPEC.code;
+    SPEC.startedAt = msg.startedAt || null;
+    SPEC.duration = Number(msg.duration) || 0;
+    if (msg.room) {
+      specSyncRoom(msg.room);
+      SPEC.status = msg.room.status || SPEC.status;
+    }
+    if (!SPEC.selectedId && SPEC.order.length) SPEC.selectedId = SPEC.order[0];
+    return;
+  }
+  if (type === 'player_state') {
+    const team = specEnsureTeam(msg.teamId, null);
+    if (team) specApplySnapshot(team, msg.s);
+    return;
+  }
+  if (type === 'team_offline') {
+    const team = SPEC.teams.get(msg.teamId);
+    if (team) team.online = false;
+    return;
+  }
+  if (type === 'room_update') {
+    if (msg.room) specSyncRoom(msg.room);
+    return;
+  }
+  if (type === 'leaderboard') {
+    if (Array.isArray(msg.teams)) {
+      for (const info of msg.teams) {
+        const team = SPEC.teams.get(info.id);
+        if (!team) continue;
+        if (typeof info.score === 'number' && isFinite(info.score)) team.score = info.score | 0;
+        if (typeof info.floor === 'number' && isFinite(info.floor)) team.floor = info.floor | 0;
+        if (typeof info.streak === 'number' && isFinite(info.streak)) team.streak = info.streak | 0;
+      }
+    }
+    return;
+  }
+  if (type === 'game_start') {
+    SPEC.status = 'playing';
+    SPEC.startedAt = msg.serverTime || Date.now();
+    if (Number(msg.duration)) SPEC.duration = Number(msg.duration);
+    return;
+  }
+  if (type === 'game_end') {
+    SPEC.status = 'ended';
+    return;
+  }
+  if (type === 'error') {
+    SPEC.err = msg.message || 'Gagal menonton room';
+    return;
+  }
+}
+
+// --- Kontrol spectator (pointer, wheel, keyboard)
+function specOnPointerDown(e) {
+  if (!SPEC.active) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX || 0) - rect.left;
+  const y = (e.clientY || 0) - rect.top;
+  const hit = specHitTest(x, y);
+  if (!hit) return;
+  if (hit.kind === 'exit') { vsSpecExit(); return; }
+  if (hit.kind === 'mode') { specToggleFocus(); return; }
+  if (hit.kind === 'tab') { specSelect(hit.teamId); SPEC.focus = true; return; }
+  if (hit.kind === 'pane') { specSelect(hit.teamId); return; }
+  if (hit.kind === 'zoomIn') { specSelect(hit.teamId); specZoomBy(hit.teamId, 0.2); return; }
+  if (hit.kind === 'zoomOut') { specSelect(hit.teamId); specZoomBy(hit.teamId, -0.2); return; }
+  if (hit.kind === 'zoomReset') { specSelect(hit.teamId); specSetZoom(hit.teamId, 1); return; }
+}
+function specOnPointerMove(e) {
+  if (!SPEC.active) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX || 0) - rect.left;
+  const y = (e.clientY || 0) - rect.top;
+  const hit = specHitTest(x, y);
+  SPEC.hover = hit;
+  canvas.style.cursor = hit ? (hit.kind === 'pane' ? 'default' : 'pointer') : 'default';
+}
+function specOnWheel(e) {
+  if (!SPEC.active) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX || 0) - rect.left;
+  const y = (e.clientY || 0) - rect.top;
+  const hit = specHitTest(x, y);
+  if (!hit || !hit.teamId) return;
+  if (typeof e.preventDefault === 'function') e.preventDefault();
+  specSelect(hit.teamId);
+  const dir = (e.deltaY || 0) > 0 ? -0.1 : 0.1;
+  specZoomBy(hit.teamId, dir);
+}
+function specOnKeyDown(e) {
+  if (!SPEC.active) return;
+  const key = e.key || '';
+  if (key === 'Escape') { if (e.preventDefault) e.preventDefault(); vsSpecExit(); return; }
+  if (key === 'f' || key === 'F') { if (e.preventDefault) e.preventDefault(); specToggleFocus(); return; }
+  if (key === 'g' || key === 'G') { if (e.preventDefault) e.preventDefault(); SPEC.focus = false; return; }
+  if (key === '+' || key === '=') { if (e.preventDefault) e.preventDefault(); specZoomBy(SPEC.selectedId, 0.2); return; }
+  if (key === '-' || key === '_') { if (e.preventDefault) e.preventDefault(); specZoomBy(SPEC.selectedId, -0.2); return; }
+  if (key === 'r' || key === 'R') { if (e.preventDefault) e.preventDefault(); specSetZoom(SPEC.selectedId, 1); return; }
+  if (/^[1-9]$/.test(key)) {
+    const team = SPEC.order[Number(key) - 1];
+    if (team) { if (e.preventDefault) e.preventDefault(); specSelect(team); SPEC.focus = true; }
+    return;
+  }
+  if (key === '0' && SPEC.order.length >= 10) {
+    if (e.preventDefault) e.preventDefault();
+    specSelect(SPEC.order[9]);
+    SPEC.focus = true;
+  }
+}
+
+// --- Masuk / keluar mode spectator
+function specSendSpectate() {
+  if (!SPEC.active) return;
+  if (!VS.ws || VS.ws.readyState !== 1) return;
+  if (!SPEC.code) return;
+  let pass = SPEC.pass || specStoredPass();
+  if (!pass && typeof window.prompt === 'function') {
+    try { pass = String(window.prompt('Password admin untuk menonton live:', '') || ''); } catch (e) { pass = ''; }
+  }
+  SPEC.pass = pass || '';
+  specStorePass(SPEC.pass);
+  try { VS.ws.send(JSON.stringify({ type: 'spectate', code: SPEC.code, adminPassword: SPEC.pass })); } catch (e) {}
+}
+function vsSpecStart(code, pass) {
+  if (SPEC.active) return;
+  SPEC.active = true;
+  SPEC.code = String(code || '').trim().toUpperCase();
+  SPEC.pass = pass != null ? String(pass) : specStoredPass();
+  SPEC.err = '';
+  SPEC.lastFrameAt = 0;
+  SPEC.lastDrawAt = 0;
+  document.body.classList.add('spectate-mode');
+  window.__spectator = { frame: vsSpecFrame };
+  const mainModal = document.getElementById('modal');
+  if (mainModal) mainModal.style.display = 'none';
+  const vsModal = document.getElementById('vs-modal');
+  if (vsModal) vsModal.style.display = 'none';
+  canvas.addEventListener('pointerdown', specOnPointerDown);
+  canvas.addEventListener('pointermove', specOnPointerMove);
+  canvas.addEventListener('wheel', specOnWheel, { passive: false });
+  window.addEventListener('keydown', specOnKeyDown);
+  vsConnect();
+  if (VS.ws && VS.ws.readyState === 1) specSendSpectate();
+  else setTimeout(specSendSpectate, 600);
+  return true;
+}
+function vsSpecExit() {
+  if (!SPEC.active) return;
+  SPEC.active = false;
+  window.__spectator = null;
+  document.body.classList.remove('spectate-mode');
+  try { if (VS.ws && VS.ws.readyState === 1) VS.ws.send(JSON.stringify({ type: 'spectate_leave' })); } catch (e) {}
+  canvas.removeEventListener('pointerdown', specOnPointerDown);
+  canvas.removeEventListener('pointermove', specOnPointerMove);
+  canvas.removeEventListener('wheel', specOnWheel);
+  window.removeEventListener('keydown', specOnKeyDown);
+  canvas.style.cursor = 'default';
+  let inFrame = false;
+  try { inFrame = !!(window.parent && window.parent !== window); } catch (e) { inFrame = false; }
+  if (inFrame) {
+    try { window.parent.postMessage({ type: 'sev7en-spec-exit' }, location.origin); } catch (e) {}
+    return;
+  }
+  try { location.href = './'; } catch (e) {}
+}
+function vsSpecMaybeStartFromUrl() {
+  let params = null;
+  try { params = new URLSearchParams(location.search || ''); } catch (e) { params = null; }
+  if (!params) return false;
+  const flag = String(params.get('spectate') || '').toLowerCase();
+  const wants = flag === '1' || flag === 'true' || flag === 'yes' || String(location.hash || '').indexOf('spectate') >= 0;
+  if (!wants) return false;
+  const code = String(params.get('code') || '').trim().toUpperCase();
+  if (!code) return false;
+  const start = function () { vsSpecStart(code); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else setTimeout(start, 300);
+  return true;
+}
+function vsSpecView() {
+  return {
+    active: SPEC.active,
+    connected: SPEC.connected,
+    code: SPEC.code,
+    status: SPEC.status,
+    selectedId: SPEC.selectedId,
+    focus: SPEC.focus,
+    err: SPEC.err,
+    teams: SPEC.order.map(function (id) {
+      const team = SPEC.teams.get(id);
+      return {
+        id: team.id, name: team.name, score: team.score, floor: team.floor,
+        streak: team.streak, online: team.online, zoom: team.zoom,
+        hasData: !!team.snap, lastAt: team.lastAt,
+      };
+    }),
+    paneCount: SPEC.layout ? SPEC.layout.panes.length : 0,
+  };
+}
+
+// Hentikan telemetri saat permainan berakhir atau kembali ke menu.
+(function () {
+  const _origEndGame = endGame;
+  endGame = function () {
+    vsStopTelemetry();
+    return _origEndGame.apply(this, arguments);
+  };
+  if (typeof window.openMenu === 'function') {
+    const _origOpenMenu = window.openMenu;
+    window.openMenu = function () {
+      vsStopTelemetry();
+      return _origOpenMenu.apply(this, arguments);
+    };
+  }
+})();
+
+// Aktifkan spectator bila URL memuat ?code=XXXXXX&spectate=1
+vsSpecMaybeStartFromUrl();
 </script>
 <!-- @/vs-only -->
 
@@ -1967,6 +2937,8 @@ updateHUD = function(){
 (function(){
   function tryOpen(){
     const params=new URLSearchParams(location.search);
+    // Halaman penonton admin: jangan buka lobby join.
+    if(params.get('spectate')) return;
     const codeFromQuery=params.get('code');
     const teamFromQuery=params.get('team');
     const wantsJoin=location.hash.indexOf('join')>=0 || !!codeFromQuery;
