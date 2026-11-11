@@ -131,8 +131,9 @@ Di production, client memakai path `wss://domain-anda/vs-ws` (lihat
 
 ## 6. Uji cepat semua fitur
 
-1. **Solo** — buka `/game.html`, isi nama tim, pilih materi, klik
-   **MULAI NAIK TANGGA**. Jawab dengan panah kiri/kanan. Pastikan skor naik.
+1. **Solo** — buka `/game.html`, isi nama tim, materi otomatis **Talking about My
+   Living Room** (satu-satunya tema), klik **MULAI NAIK TANGGA**. Jawab dengan
+   panah kiri/kanan. Pastikan skor naik.
 2. **Admin** — buka `/admin/`, isi password `sev7en-admin`, buat room. Pastikan
    kode 6 huruf muncul.
 3. **Tim** — buka link room di tab lain (boleh browser berbeda), isi nama tim,

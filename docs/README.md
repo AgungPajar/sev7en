@@ -4,7 +4,8 @@ Dokumentasi ini menjelaskan cara memakai, mengelola, menambah soal, dan men-depl
 game kuis Bahasa Inggris **Sev7en Club**. Game punya dua mode bermain, plus satu
 mode tonton untuk admin:
 
-- **Solo** — latihan naik tangga awan di satu perangkat.
+- **Solo** — latihan naik tangga awan di satu perangkat, memakai bank 50 soal tema
+  *Talking about My Living Room*.
 - **Mabar / VS** — maksimal **10 tim** bertanding lewat kode room 6 karakter, dengan
   leaderboard live. Satu lobby bisa dipakai **berkali-kali**: setelah ronde selesai,
   pemenang resmi diumumkan dan room kembali ke lobby untuk ronde berikutnya.
@@ -29,8 +30,8 @@ mode tonton untuk admin:
 | [02 · Cara Main Solo](02-cara-main-solo.md) | Alur menu solo, kontrol, HUD, akhir permainan | Guru / siswa / operator |
 | [03 · Panel Admin](03-panel-admin.md) | Password, buat room, bagikan kode, mulai mabar, memantau skor, tonton live, hasil/pemenang, main lagi, hapus room | Admin / host |
 | [04 · Mabar Multiplayer](04-mabar-multiplayer.md) | Alur tim, join lobby, aturan, spectator, akhir permainan & pemenang, ronde berulang, hapus room, reconnect, batasan | Admin + tim |
-| [05 · Menambah Soal](05-menambah-soal.md) | Struktur bank soal, cara menambah, topik baru, checklist | Developer / guru |
-| [06 · Mekanik & Skor](06-mekanik-dan-skor.md) | Rumus poin, streak, zona ketinggian, timer | Semua |
+| [05 · Menambah Soal](05-menambah-soal.md) | Bank soal satu tema (50 soal Living Room), cara menambah, pemilihan berbobot anti-ulang, checklist | Developer / guru |
+| [06 · Mekanik & Skor](06-mekanik-dan-skor.md) | Rumus poin, streak, zona ketinggian, timer, pemilihan soal anti-ulang | Semua |
 | [07 · Deploy VPS](07-deploy-vps.md) | PM2, Nginx, WSS, environment, verifikasi | DevOps / maintainer |
 | [08 · Arsitektur & Protokol](08-arsitektur-dan-protokol.md) | Peta file, model data, pesan WebSocket, telemetri spectator, rendering klien | Developer |
 | [09 · Troubleshooting & FAQ](09-troubleshooting-faq.md) | Daftar error, gejala, solusi, pertanyaan umum | Semua |
@@ -69,7 +70,8 @@ Ringkasan alur permainan (solo, mabar, reconnect) ada di
 
 ### Demo alur mabar
 
-1. Buka `/admin/`, isi password, pilih materi & durasi, klik **Buat Room**.
+1. Buka `/admin/`, isi password, pilih durasi (materi otomatis **Talking about My
+   Living Room**), klik **Buat Room**.
 2. Salin **kode 6 huruf** atau **link** yang muncul.
 3. Di perangkat tim, buka link tersebut, isi **nama tim**, lalu masuk lobby.
 4. Setelah semua tim join, klik **MULAI MABAR** di panel admin.
@@ -88,8 +90,12 @@ Ringkasan alur permainan (solo, mabar, reconnect) ada di
 
 ## Yang perlu diketahui sejak awal
 
-- **Soal masih hardcoded** di dalam file HTML. Belum ada CRUD soal di panel admin.
-  Cara menambahnya ada di [05 · Menambah Soal](05-menambah-soal.md).
+- **Soal masih hardcoded** di dalam file HTML dan hanya **satu tema**:
+  *Talking about My Living Room* (50 soal). Tidak ada pilihan topik atau CRUD di
+  panel admin. Cara menambah ada di [05 · Menambah Soal](05-menambah-soal.md).
+- **Pemilihan soal berbobot** — soal baru diprioritaskan; soal yang sudah tampil
+  diberi bobot 3% (turun ×0.20 tiap kemunculan) dan dikali 0.05 selama masih dalam
+  6 soal terakhir. Semua soal tetap bisa muncul kembali.
 - **Tidak ada database.** Room, tim, dan skor hanya ada di memori server. Restart
   server atau menunggu 2 jam akan menghapus room.
 - **Skor dikirim oleh browser tim** (client-authoritative). Cocok untuk kelas /

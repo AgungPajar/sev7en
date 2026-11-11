@@ -26,7 +26,7 @@ join sebagai tim dari tab/perangkat lain memakai nama tim. Menonton lewat
 ADMIN                              TIM 1..10
   │                                  │
   ├─ buka /admin/                    │
-  ├─ isi password + materi + durasi  │
+  ├─ isi password + durasi (Living)  │
   ├─ Buat Room ──► kode 6 huruf      │
   ├─ bagikan kode/link ─────────────►│
   │                                  ├─ buka link
@@ -102,9 +102,10 @@ salah baca.
 
 ## 5. Di dalam permainan
 
-- Semua tim memakai **materi dan durasi yang sama** dari room.
-- Setiap browser tetap mengacak **urutan soal sendiri**, jadi tiap tim mendapat
-  urutan berbeda. Platform jawaban juga diacak kiri/kanan per soal.
+- Semua tim memakai **materi dan durasi yang sama** dari room. Materi saat ini satu
+  tema: **Talking about My Living Room** (50 soal).
+- Setiap browser punya riwayat anti-ulang dan urutan soal sendiri, jadi urutan
+  antar tim berbeda. Platform jawaban juga diacak kiri/kanan per soal.
 - Progres, skor, streak, dan ketinggian dihitung **lokal di browser**.
 - Browser mengirim `score_update` berisi `score`, `floor`, dan `streak` maksimal
   sekali per ±400 ms.

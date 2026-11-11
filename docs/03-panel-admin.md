@@ -33,7 +33,7 @@ Pada kartu **Buat Room Baru**:
 
 | Field | Pilihan | Catatan |
 |---|---|---|
-| Materi | Semua Materi, There is/are & Ruangan, Food & Kitchen, Present Continuous + Hobby, Routine + Transport | Dikirim ke semua tim |
+| Tema | 🏠 Talking about My Living Room (50 soal) — satu-satunya opsi | Dikirim ke semua tim |
 | Durasi | 3 Menit, 5 Menit, 10 Menit, Tanpa Batas | Dikirim ke semua tim; baca catatan timer di [06 · Mekanik & Skor](06-mekanik-dan-skor.md) |
 | Password Admin | Input password | Wajib diisi |
 

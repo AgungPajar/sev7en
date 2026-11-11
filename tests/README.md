@@ -4,10 +4,10 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 
 | File produksi | Yang diuji |
 |---|---|
-| `game.html` (inline script) | Bank soal, shuffle, spawn tangga, scoring, streak, jump/fall, animasi, HUD, audio, kontrol, VS client (termasuk hasil resmi, ronde berulang, hapus room, spectator GAME OVER), renderer 3D |
+| `game.html` (inline script) | Bank soal satu tema (50 soal), pemilihan berbobot anti-ulang, spawn tangga, scoring, streak, jump/fall, animasi, HUD, audio, kontrol, VS client (termasuk hasil resmi, ronde berulang, hapus room, spectator GAME OVER), renderer 3D |
 | `star_pou_sky_climber.html` (inline script) | Sama seperti core `game.html` (kedua file memakai logika + renderer identik) |
 | `index.html` (inline script) | Dialog join: validasi kode/nama, prefill `?code=`, redirect ke game |
-| `star_pou_vs.html` | Struktur situs: duplikat harus identik dengan `game.html` |
+| `star_pou_vs.html` | Struktur situs: duplikat harus identik dengan `game.html`, satu opsi tema di selector |
 | `vs-server/room-manager.js` (via adapter `server.js`) | Protokol WebSocket: create/join/rejoin/start/score/finish/end/delete_room, hasil pertandingan & klasemen, ronde berulang, hapus room, validasi, broadcast, cleanup, health |
 
 ## Cara menjalankan
@@ -20,7 +20,7 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 # vs-server/server.bun.test.js milik `bun test`).
 node --test --test-isolation=none \
   tests/game-core.test.js tests/game-3d.test.js tests/game-vs-client.test.js \
-  tests/site-structure.test.js tests/landing.test.js        # 374 test (374 lulus)
+  tests/site-structure.test.js tests/landing.test.js        # 392 test (392 lulus)
 node --test --test-isolation=none tests/vs-server.test.js    # 83 test (82 lulus, 1 gagal pre-existing; butuh `ws`)
 ```
 
@@ -34,20 +34,20 @@ oleh `vs-server` (sudah ada di `vs-server/node_modules`).
 tests/
 ├── helpers/
 │   └── game-page.js       # sandbox DOM/canvas/audio/timer/WebSocket untuk menjalankan HTML asli
-├── game-core.test.js      # 166 test core game (dijalankan untuk kedua file HTML)
+├── game-core.test.js      # 182 test core game (dijalankan untuk kedua file HTML)
 ├── game-3d.test.js        # 82 test kontrak renderer 3D (dijalankan untuk kedua file HTML)
-├── game-vs-client.test.js # 110 test client multiplayer + spectator/telemetri + jam match + hasil/pemenang + ronde berulang + delete_room
+├── game-vs-client.test.js # 111 test client multiplayer + spectator/telemetri + jam match + hasil/pemenang + ronde berulang + delete_room
 ├── landing.test.js        # 8 test dialog join di index.html
-├── site-structure.test.js # 8 test struktur markup & sinkronisasi build
+├── site-structure.test.js # 9 test struktur markup, selector tema tunggal & sinkronisasi build
 ├── vs-server.test.js      # 83 test server WebSocket (unit + integrasi live + spectator + clock + hasil pertandingan + ronde + delete_room)
 └── README.md
 ```
 
-Total Node: **457 test** — **456 lulus**, **1 gagal pre-existing** di
+Total Node: **475 test** — **474 lulus**, **1 gagal pre-existing** di
 `vs-server.test.js` ("supports rejoining a team after a disconnect", yang mengakses
-`serverTeam.ws._teamId` internal; sengaja tidak diubah). Rinciannya: **374 test**
+`serverTeam.ws._teamId` internal; sengaja tidak diubah). Rinciannya: **392 test**
 di 5 suite klien (game/renderer/struktur/landing, semuanya lulus; dari jumlah itu
-`game-vs-client.test.js` menyumbang **110 test**) dan **83 test** di suite server
+`game-vs-client.test.js` menyumbang **111 test**) dan **83 test** di suite server
 (**82 lulus, 1 pre-existing**).
 Tambahan `bun test vs-server/server.bun.test.js`: **21 test**, semuanya lulus.
 
@@ -101,7 +101,12 @@ memakai WebSocket client bawaan Node, sehingga protokol end-to-end benar-benar d
 
 ## Cakupan penting
 
-- **Bank soal** — 29 soal, 4 topik, tidak ada `correct === wrong`, tidak ada duplikat.
+- **Bank soal** — 50 soal satu tema `living_room`, bentuk objek `{ id, topic, emoji, q, correct, wrong }`,
+  `id` berurutan 1–50, tidak ada `correct === wrong`, tidak ada soal/teks duplikat.
+- **Pemilihan soal anti-ulang** — bobot soal belum tampil `1`, bobot soal sudah tampil `0.03 × 0.20^(n−1)`,
+  pengali `0.05` selama masih dalam jeda `QUESTION_RECENT_WINDOW` (6 soal), bobot turun tiap kemunculan,
+  tidak pernah mengulang soal di tangga berikutnya, dan seluruh 50 soal tetap muncul dalam sesi panjang.
+  Riwayat `questionStats`/`questionPickSeq` bertahan antar `startGame()` (rematch).
 - **Shuffle** — permutation, tidak memutasi input, deterministik per seed.
 - **Spawn tangga** — posisi kiri/kanan, satu jawaban benar, level, wrap pool, cloud extension.
 - **Scoring** — `100 + min(streak-1, 5) * 20` (100, 120, …, 200, 200), history maks 8.
@@ -139,7 +144,8 @@ memakai WebSocket client bawaan Node, sehingga protokol end-to-end benar-benar d
   layout grid 1/4/10 tim + mode fokus, clamp zoom 0.7–2.4 per tim, hit-test & kontrol
   pointer/wheel/keyboard, `vsSpecExit`, render multi-pane lewat renderer 3D asli tanpa merusak state pemain.
 - **Landing** — dialog join, validasi, prefill kode, redirect ter-encode.
-- **Struktur** — ID wajib ada, tidak ada script eksternal, build solo tanpa VS, `star_pou_vs.html` = `game.html`.
+- **Struktur** — ID wajib ada, tidak ada script eksternal, build solo tanpa VS, `star_pou_vs.html` = `game.html`,
+  selector tema hanya berisi opsi `living_room` (penjaga tema tunggal).
 - **Server** — auth admin, kode 6 karakter tanpa `I/O/0/1`, validasi join (duplikat, penuh,
   sudah mulai), host-only start/end/delete, clamp score/floor, sorting leaderboard, rejoin,
   disconnect, isolasi room, TTL cleanup, `/health`, pesan rusak/unknown.

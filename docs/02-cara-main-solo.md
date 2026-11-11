@@ -14,7 +14,7 @@ soal Bahasa Inggris. Tidak perlu server mabar.
 | Field | Default | Keterangan |
 |---|---|---|
 | Nama Tim di Laptop Ini | `TIM BINTANG A` | Ditampilkan di HUD dan hasil akhir; otomatis uppercase |
-| Pilih Materi | Semua Materi | Filter bank soal (lihat tabel di bawah) |
+| Pilih Tema | 🏠 Talking about My Living Room | Satu-satunya tema (50 soal) |
 | Durasi 1 Match | 3 Menit | 2 menit, 3 menit, 5 menit, atau tanpa batas |
 
 4. Klik **🚀 MULAI NAIK TANGGA! (Solo)**.
@@ -24,13 +24,16 @@ soal Bahasa Inggris. Tidak perlu server mabar.
 
 ### Pilihan materi
 
+Bank soal kini hanya punya **satu tema**, jadi tidak ada lagi filter topik atau
+mode gabungan:
+
 | Value | Label di menu | Isi |
 |---|---|---|
-| `all` | Semua Materi Gabungan | Seluruh bank soal |
-| `there_prep` | There is/are, Rooms & Prepositions | There is/are, ruangan, preposisi |
-| `food_kitchen` | Meals, Likes/Dislikes & Kitchen | Makanan, suka/tidak suka, dapur |
-| `continuous_hobby` | Present Continuous & Hobbies | Present continuous, hobi |
-| `routine_transport` | Morning Routine, Numbers & Transport | Rutinitas pagi, angka, transportasi |
+| `living_room` | 🏠 Talking about My Living Room (50 soal) | Seluruh bank: 50 soal ruang tamu |
+
+> Menu hanya menyediakan opsi ini. Di mabar, kalau room mengirim `materi` lama
+> (`all`, `there_prep`, `food_kitchen`, dan sebagainya), client menormalkannya
+> menjadi `living_room` supaya permainan tetap berjalan.
 
 ### Pilihan durasi
 
@@ -116,8 +119,10 @@ Soal muncul
 
 - Kamera otomatis naik mengikuti platform terakhir yang benar.
 - Riwayat platform yang ditampilkan dibatasi 8 tangga terakhir.
-- Bank soal diacak di awal permainan. Jika semua soal sudah terpakai, bank diacak
-  ulang dan permainan berlanjut.
+- Pemilihan soal memakai bobot: soal yang belum pernah tampil diprioritaskan, soal
+  yang sudah tampil diberi bobot kecil (dikali 0.05 lagi bila masih dalam 6 soal
+  terakhir). Semua soal tetap bisa muncul kembali dalam sesi panjang. Detail:
+  [05 · Menambah Soal §6](05-menambah-soal.md).
 
 Detail angka dan rumus ada di [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 
@@ -182,7 +187,8 @@ Di mode solo, tidak ada leaderboard dan tidak ada pengiriman skor ke server.
 
 - Gunakan **2–3 menit** untuk sesi cepat, **5 menit** untuk sesi latihan lebih
   tenang.
-- Pilih satu materi agar fokus, atau `all` untuk pengulangan campuran.
+- Pilih durasi sesuai kebutuhan; materi selalu **Talking about My Living Room**
+  (satu-satunya tema, 50 soal).
 - Mainkan satu kali percobaan sebelum menilai, supaya siswa paham kontrol.
 - Untuk kompetisi antar kelompok, gunakan mode mabar (maksimal 10 tim) — lihat
   [04 · Mabar Multiplayer](04-mabar-multiplayer.md).

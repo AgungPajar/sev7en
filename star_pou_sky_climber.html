@@ -203,13 +203,9 @@
       </div>
 
       <div class="setting-row">
-        <label>Pilih Materi (Kelas 3 & 4):</label>
+        <label>Pilih Tema Soal:</label>
         <select id="topic-select">
-          <option value="all">🌟 Semua Materi Gabungan (Kelas 3 & 4)</option>
-          <option value="there_prep">🏠 There is/are, Rooms & Prepositions</option>
-          <option value="food_kitchen">🍳 Meals, Likes/Dislikes & Kitchen</option>
-          <option value="continuous_hobby">⚽ Present Continuous & Hobbies</option>
-          <option value="routine_transport">🚌 Morning Routine, Numbers & Transport</option>
+          <option value="living_room">🏠 Talking about My Living Room (50 soal)</option>
         </select>
       </div>
 
@@ -231,45 +227,115 @@
   <canvas id="gameCanvas"></canvas>
 
   <script>
-    // --- 1. BANK SOAL GABUNGAN KELAS 3 & 4 ---
+    // --- 1. BANK SOAL TEMA TUNGGAL: TALKING ABOUT MY LIVING ROOM ---
+    // 50 soal gabungan quiz_a (1-25) + quiz_b (26-50), dua pilihan jawaban.
+    // id dipakai pelacak anti-ulang; topic tunggal agar menu tema sederhana.
     const QUESTION_BANK = [
-      // There is / There are, Rooms & Prepositions
-      { topic: 'there_prep', emoji: '🐱🪑', q: 'The cat is sleeping ______ the table. (Di bawah)', correct: 'under', wrong: 'behind' },
-      { topic: 'there_prep', emoji: '📚', q: '______ three books on the desk.', correct: 'There are', wrong: 'There is' },
-      { topic: 'there_prep', emoji: '🛋️', q: '______ a big sofa in my living room.', correct: 'There is', wrong: 'There are' },
-      { topic: 'there_prep', emoji: '🧑‍🏫', q: 'There is a whiteboard ______ the class. (Di depan)', correct: 'in front of', wrong: 'under' },
-      { topic: 'there_prep', emoji: '📺', q: 'We watch ______ in the living room.', correct: 'television', wrong: 'refrigerator' },
-      { topic: 'there_prep', emoji: '🛏️', q: 'There ______ three bedrooms in my house.', correct: 'are', wrong: 'is' },
-      { topic: 'there_prep', emoji: '💡', q: 'There ______ one lamp on the table.', correct: 'is', wrong: 'are' },
-      { topic: 'there_prep', emoji: '🎒', q: 'Where is the bag? It is ______ the chair. (Di atas)', correct: 'on', wrong: 'in' },
-
-      // Meals, Likes/Dislikes & Kitchen
-      { topic: 'food_kitchen', emoji: '🌅🍛', q: 'It is 7 a.m. in the morning. I eat ______.', correct: 'breakfast', wrong: 'dinner' },
-      { topic: 'food_kitchen', emoji: '🌙🍽️', q: 'We eat ______ at 7 p.m. at night.', correct: 'dinner', wrong: 'breakfast' },
-      { topic: 'food_kitchen', emoji: '🍗😋', q: 'Do you like fried chicken? Yes, ______.', correct: 'I do', wrong: 'I don\'t' },
-      { topic: 'food_kitchen', emoji: '🥛🤢', q: 'Do you like milk? No, ______.', correct: 'I don\'t', wrong: 'I do' },
-      { topic: 'food_kitchen', emoji: '🍽️🚰', q: 'We can wash the dirty plates in the ______.', correct: 'sink', wrong: 'stove' },
-      { topic: 'food_kitchen', emoji: '🍳🔥', q: 'My mother cooks fried rice on the ______.', correct: 'stove', wrong: 'carpet' },
-      { topic: 'food_kitchen', emoji: '🧊🍎', q: 'We keep milk and fruit cold in the ______.', correct: 'refrigerator', wrong: 'cupboard' },
-      { topic: 'food_kitchen', emoji: '👨‍🍳', q: 'I ______ make fried rice in the kitchen.', correct: 'can', wrong: 'am' },
-
-      // Present Continuous & Hobbies
-      { topic: 'continuous_hobby', emoji: '📖👧', q: 'Look! She ______ reading a book now.', correct: 'is', wrong: 'are' },
-      { topic: 'continuous_hobby', emoji: '⚽👦👦', q: 'They ______ playing football in the yard.', correct: 'are', wrong: 'is' },
-      { topic: 'continuous_hobby', emoji: '✍️🙋‍♂️', q: 'I ______ studying English right now.', correct: 'am', wrong: 'is' },
-      { topic: 'continuous_hobby', emoji: '🏊‍♂️', q: 'Is your hobby swimming? Yes, ______.', correct: 'it is', wrong: 'I do' },
-      { topic: 'continuous_hobby', emoji: '🚴‍♂️', q: 'My hobby is ______ a bicycle.', correct: 'cycling', wrong: 'sleeping' },
-      { topic: 'continuous_hobby', emoji: '🎨🖌️', q: 'She likes ______ pictures. (Melukis)', correct: 'painting', wrong: 'swimming' },
-
-      // Morning Routine, Numbers & Transport
-      { topic: 'routine_transport', emoji: '⏰🛌', q: 'I always ______ up at 5 o\'clock every morning.', correct: 'get', wrong: 'take' },
-      { topic: 'routine_transport', emoji: '🚿🧼', q: 'I ______ a bath at 6 a.m. before school.', correct: 'take', wrong: 'eat' },
-      { topic: 'routine_transport', emoji: '🚌🏫', q: 'I go to school ______ bus.', correct: 'by', wrong: 'on' },
-      { topic: 'routine_transport', emoji: '🚲', q: 'How do you go to school? By ______. (Sepeda)', correct: 'bike', wrong: 'train' },
-      { topic: 'routine_transport', emoji: '🔢2️⃣5️⃣', q: 'What number is 25 in English?', correct: 'Twenty-five', wrong: 'Thirty-five' },
-      { topic: 'routine_transport', emoji: '🔢4️⃣0️⃣', q: 'There are ______ (40) students in the class.', correct: 'Forty', wrong: 'Fourteen' },
-      { topic: 'routine_transport', emoji: '🔢5️⃣0️⃣', q: 'What number is 50 in English?', correct: 'Fifty', wrong: 'Fifteen' }
+      { id: 1, topic: 'living_room', emoji: '🛋️', q: 'We sit on a ___ in the living room.', correct: 'sofa', wrong: 'lamp' },
+      { id: 2, topic: 'living_room', emoji: '💡', q: 'Is there a lamp on the table?', correct: 'Yes, there is.', wrong: 'Yes, it is.' },
+      { id: 3, topic: 'living_room', emoji: '💡', q: 'The ___ is on the table. It gives light.', correct: 'lamp', wrong: 'carpet' },
+      { id: 4, topic: 'living_room', emoji: '🧶', q: 'It is soft and it is on the floor. What is it?', correct: 'A carpet', wrong: 'A window' },
+      { id: 5, topic: 'living_room', emoji: '🪟', q: 'We open the ___ to let in fresh air.', correct: 'window', wrong: 'sofa' },
+      { id: 6, topic: 'living_room', emoji: '🛋️', q: 'Is a sofa soft?', correct: 'Yes, it is.', wrong: 'Yes, there is.' },
+      { id: 7, topic: 'living_room', emoji: '🪟', q: 'There is a long ___ on the window.', correct: 'curtain', wrong: 'table' },
+      { id: 8, topic: 'living_room', emoji: '📺', q: 'We watch cartoons on it. What is it?', correct: 'A television', wrong: 'A carpet' },
+      { id: 9, topic: 'living_room', emoji: '🪑', q: 'The chairs ___ in the living room.', correct: 'are', wrong: 'is' },
+      { id: 10, topic: 'living_room', emoji: '🪟', q: 'Are there two windows in the room?', correct: 'Yes, there are.', wrong: 'Yes, they do.' },
+      { id: 11, topic: 'living_room', emoji: '🖼️', q: 'There ___ a picture on the wall.', correct: 'is', wrong: 'are' },
+      { id: 12, topic: 'living_room', emoji: '🪑', q: 'How many legs does a usual chair have?', correct: 'Four', wrong: 'Two' },
+      { id: 13, topic: 'living_room', emoji: '🪑', q: '___ many chairs are there?', correct: 'How', wrong: 'What' },
+      { id: 14, topic: 'living_room', emoji: '🪟', q: 'Are there curtains in the living room?', correct: 'Yes, there are.', wrong: 'Yes, there is.' },
+      { id: 15, topic: 'living_room', emoji: '💡', q: 'The lamp is ___ the table.', correct: 'on', wrong: 'in' },
+      { id: 16, topic: 'living_room', emoji: '📺', q: 'Do we watch television in the living room?', correct: 'Yes, we do.', wrong: 'Yes, we are.' },
+      { id: 17, topic: 'living_room', emoji: '🛋️', q: 'Which one is furniture?', correct: 'A sofa', wrong: 'A window' },
+      { id: 18, topic: 'living_room', emoji: '🛋️', q: 'There are two ___ in the living room.', correct: 'sofas', wrong: 'sofa' },
+      { id: 19, topic: 'living_room', emoji: '🪟', q: 'Is the curtain blue?', correct: 'Yes, it is.', wrong: 'Yes, there is.' },
+      { id: 20, topic: 'living_room', emoji: '🏠', q: 'What do we call the room where we watch television with our family?', correct: 'The living room', wrong: 'The kitchen' },
+      { id: 21, topic: 'living_room', emoji: '🪟', q: 'The ___ are on the window. They are yellow.', correct: 'curtains', wrong: 'curtain' },
+      { id: 22, topic: 'living_room', emoji: '🧶', q: 'Is the carpet soft?', correct: 'Yes, it is.', wrong: 'Yes, there is.' },
+      { id: 23, topic: 'living_room', emoji: '🖼️', q: 'There is a big ___ on the wall. We look at it.', correct: 'picture', wrong: 'carpet' },
+      { id: 24, topic: 'living_room', emoji: '💡', q: 'Which one gives light?', correct: 'A lamp', wrong: 'A carpet' },
+      { id: 25, topic: 'living_room', emoji: '🛋️', q: 'How many sofas are there? There ___ one sofa.', correct: 'is', wrong: 'are' },
+      { id: 26, topic: 'living_room', emoji: '☕', q: 'We put a cup on the ___.', correct: 'table', wrong: 'carpet' },
+      { id: 27, topic: 'living_room', emoji: '🧶', q: 'Is there a carpet in the living room?', correct: 'Yes, there is.', wrong: 'Yes, it is.' },
+      { id: 28, topic: 'living_room', emoji: '🪟', q: 'How many windows ___ there?', correct: 'are', wrong: 'is' },
+      { id: 29, topic: 'living_room', emoji: '🔤', q: 'How many letters are in the word \'chair\'?', correct: 'Five', wrong: 'Four' },
+      { id: 30, topic: 'living_room', emoji: '💡', q: 'Does a lamp give light?', correct: 'Yes, it does.', wrong: 'Yes, it is.' },
+      { id: 31, topic: 'living_room', emoji: '📺', q: 'The television ___ in the living room.', correct: 'is', wrong: 'are' },
+      { id: 32, topic: 'living_room', emoji: '🪟', q: 'We look out of the ___ to see the garden.', correct: 'window', wrong: 'picture' },
+      { id: 33, topic: 'living_room', emoji: '🖼️', q: 'There are three ___ on the wall.', correct: 'pictures', wrong: 'picture' },
+      { id: 34, topic: 'living_room', emoji: '🪑', q: 'Can we sit on a chair?', correct: 'Yes, we can.', wrong: 'Yes, we do.' },
+      { id: 35, topic: 'living_room', emoji: '🪟', q: 'The windows ___ big.', correct: 'are', wrong: 'is' },
+      { id: 36, topic: 'living_room', emoji: '🏠', q: 'A living room is a room in a ___.', correct: 'house', wrong: 'school' },
+      { id: 37, topic: 'living_room', emoji: '🪟', q: 'Do curtains cover the window?', correct: 'Yes, they do.', wrong: 'Yes, there are.' },
+      { id: 38, topic: 'living_room', emoji: '🪟', q: '___ is the window? It is near the door.', correct: 'Where', wrong: 'How many' },
+      { id: 39, topic: 'living_room', emoji: '🪑', q: 'Are the chairs around the table?', correct: 'Yes, they are.', wrong: 'Yes, there are.' },
+      { id: 40, topic: 'living_room', emoji: '🛋️', q: 'There is a sofa, a table, ___ four chairs in the living room.', correct: 'and', wrong: 'but' },
+      { id: 41, topic: 'living_room', emoji: '🧶', q: 'Which one is usually on the floor in a living room?', correct: 'A carpet', wrong: 'A picture' },
+      { id: 42, topic: 'living_room', emoji: '🖼️', q: 'How many pictures are there? There is ___ picture.', correct: 'one', wrong: 'two' },
+      { id: 43, topic: 'living_room', emoji: '🛏️', q: 'Is there a bed in the living room?', correct: 'No, there isn\'t.', wrong: 'No, there aren\'t.' },
+      { id: 44, topic: 'living_room', emoji: '📺', q: 'There is ___ old television in the corner.', correct: 'an', wrong: 'a' },
+      { id: 45, topic: 'living_room', emoji: '🛋️', q: 'Do you sit on a sofa with your family?', correct: 'Yes, we do.', wrong: 'Yes, we are.' },
+      { id: 46, topic: 'living_room', emoji: '🪑', q: 'There ___ a table and two chairs in the room.', correct: 'is', wrong: 'are' },
+      { id: 47, topic: 'living_room', emoji: '🪟', q: 'Which one is made of glass?', correct: 'A window', wrong: 'A sofa' },
+      { id: 48, topic: 'living_room', emoji: '🪑', q: 'Where ___ the chairs?', correct: 'are', wrong: 'is' },
+      { id: 49, topic: 'living_room', emoji: '🏠', q: 'Are there many things in a living room?', correct: 'Yes, there are.', wrong: 'Yes, there is.' },
+      { id: 50, topic: 'living_room', emoji: '🛋️', q: 'My living room ___ a big sofa.', correct: 'has', wrong: 'have' },
     ];
+
+    // --- 1b. PEMILIHAN SOAL ANTI-ULANG ---
+    // Soal yang sudah pernah tampil tetap boleh muncul lagi, tetapi bobotnya
+    // ditekan dan diberi jeda beberapa soal supaya variasi tetap terjaga.
+    // Riwayat disimpan per tab (ikut bertahan antar ronde di lobby yang sama);
+    // refresh halaman memulai riwayat baru.
+    const QUESTION_REPEAT_BASE = 0.03;   // soal yang sudah tampil = 3% bobot soal baru
+    const QUESTION_REPEAT_DECAY = 0.20;  // tiap kemunculan berikutnya dikali 0.20
+    const QUESTION_RECENT_WINDOW = 6;    // jeda lunak: soal dalam 6 soal terakhir sangat ditekan (bukan dilarang total)
+    const QUESTION_RECENT_FACTOR = 0.05; // pengali tambahan bila masih di dalam jeda
+    const questionStats = new Map();
+    let questionPickSeq = 0;
+
+    function questionKey(q) {
+      return (q && q.id != null) ? q.id : (q ? q.q : '');
+    }
+
+    function questionWeight(q) {
+      const st = questionStats.get(questionKey(q));
+      if (!st || !st.shown) return 1;
+      let w = QUESTION_REPEAT_BASE * Math.pow(QUESTION_REPEAT_DECAY, st.shown - 1);
+      if (questionPickSeq - st.lastShown < QUESTION_RECENT_WINDOW) w *= QUESTION_RECENT_FACTOR;
+      return Math.max(w, 1e-6);
+    }
+
+    function pickQuestion(pool) {
+      if (!Array.isArray(pool) || !pool.length) return null;
+      const weights = new Array(pool.length);
+      let total = 0;
+      for (let i = 0; i < pool.length; i++) {
+        const w = questionWeight(pool[i]);
+        weights[i] = w;
+        total += w;
+      }
+      if (!isFinite(total) || total <= 0) {
+        return pool[Math.floor(Math.random() * pool.length)] || null;
+      }
+      let r = Math.random() * total;
+      for (let i = 0; i < pool.length; i++) {
+        r -= weights[i];
+        if (r < 0) return pool[i];
+      }
+      return pool[pool.length - 1];
+    }
+
+    function noteQuestionShown(q) {
+      if (!q) return;
+      questionPickSeq++;
+      const key = questionKey(q);
+      const st = questionStats.get(key) || { shown: 0, lastShown: 0 };
+      st.shown++;
+      st.lastShown = questionPickSeq;
+      questionStats.set(key, st);
+    }
 
     // --- 2. WEB AUDIO SFX ---
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -407,7 +473,7 @@
 
     // Game Progress Variables
     let activePool = [];
-    let currentQIndex = 0;
+    let currentQuestion = null;
     let floorLevel = 0; // 0 = Ground, 1+ = Stairs climbed
     let score = 0;
     let streak = 0;
@@ -444,8 +510,9 @@
         ? QUESTION_BANK
         : QUESTION_BANK.filter(q => q.topic === topic);
 
-      activePool = shuffle(filtered);
-      currentQIndex = 0;
+      // Topik tak dikenal tidak boleh membuat pool kosong: pakai seluruh bank.
+      activePool = shuffle(filtered.length ? filtered : QUESTION_BANK);
+      currentQuestion = null;
       floorLevel = 0;
       score = 0;
       streak = 0;
@@ -525,11 +592,11 @@
     }
 
     function spawnNextStairOptions() {
-      if (currentQIndex >= activePool.length) {
-        activePool = shuffle(activePool);
-        currentQIndex = 0;
-      }
-      const q = activePool[currentQIndex++];
+      if (!activePool.length) return;
+      const q = pickQuestion(activePool);
+      if (!q) return;
+      currentQuestion = q;
+      noteQuestionShown(q);
 
       document.getElementById('q-counter').textContent = `TANGGA ${floorLevel + 1}`;
       document.getElementById('q-emoji').textContent = q.emoji;

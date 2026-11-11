@@ -214,18 +214,30 @@ describe('VS client — incoming messages', () => {
     page.el('team-input').value = '';
     const ws = openSocket(page);
 
-    ws.receive({ type: 'game_start', materi: 'food_kitchen', duration: 60 });
+    ws.receive({ type: 'game_start', materi: 'living_room', duration: 60 });
 
     assert.equal(VS(page).enabled, true);
     assert.equal(page.el('vs-modal').style.display, 'none');
     assert.equal(page.el('modal').style.display, 'none');
-    assert.equal(page.el('topic-select').value, 'food_kitchen');
+    assert.equal(page.el('topic-select').value, 'living_room');
     assert.equal(page.el('duration-select').value, '60');
     assert.equal(page.el('team-input').value, 'Tim A');
-    assert.equal(page.get('_vsMateri'), 'food_kitchen');
+    assert.equal(page.get('_vsMateri'), 'living_room');
     assert.equal(page.get('gameRunning'), true);
-    assert.equal(page.get('activePool.length'), 8);
+    assert.equal(page.get('activePool.length'), 50);
     assert.equal(page.el('team-display').textContent, 'TIM A');
+  });
+
+  it('normalises legacy or unknown materi to the single Living Room theme', () => {
+    for (const materi of ['all', 'food_kitchen', 'there_prep', 'unknown_xyz']) {
+      const page = load();
+      const ws = openSocket(page);
+      ws.receive({ type: 'game_start', materi, duration: 60 });
+      assert.equal(page.el('topic-select').value, 'living_room', materi);
+      assert.equal(page.get('activePool.length'), 50, materi);
+      assert.equal(page.get('_vsMateri'), 'living_room', materi);
+      assert.equal(page.get('gameRunning'), true, materi);
+    }
   });
 
   it('stores and renders the leaderboard', () => {
@@ -437,7 +449,7 @@ describe('VS client — create room', () => {
   it('sends create_room with the form values once the socket opens', () => {
     const page = load();
     page.el('vs-admin-pass').value = 'secret';
-    page.el('vs-materi').value = 'food_kitchen';
+    page.el('vs-materi').value = 'living_room';
     page.el('vs-duration').value = '60';
 
     page.call('vsCreateRoom');
@@ -452,7 +464,7 @@ describe('VS client — create room', () => {
     assert.deepEqual(sentJson(ws), {
       type: 'create_room',
       adminPassword: 'secret',
-      materi: 'food_kitchen',
+      materi: 'living_room',
       duration: '60',
     });
   });
@@ -460,7 +472,7 @@ describe('VS client — create room', () => {
   it('sends immediately when the socket is already open', () => {
     const page = load();
     page.el('vs-admin-pass').value = 'pw';
-    page.el('vs-materi').value = 'all';
+    page.el('vs-materi').value = 'living_room';
     page.el('vs-duration').value = '180';
     const ws = openSocket(page);
     page.call('vsCreateRoom');

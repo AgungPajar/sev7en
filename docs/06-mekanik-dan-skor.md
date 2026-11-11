@@ -14,7 +14,7 @@ dan menghitung pemenang resmi di akhir ronde dari skor tiap tim.
 
 ```
 Mulai
-  │  bank soal difilter + diacak
+  │  bank soal tema tunggal + bobot anti-ulang
   ▼
 Soal + 2 platform jawaban
   │
@@ -84,39 +84,49 @@ Latar langit bertransisi mengikuti posisi kamera, bukan langsung per tangga.
 | Solo | 120 / 180 / 300 detik | Hitung mundur |
 | Solo | 9999 | Tanpa batas (`♾️`) |
 | Admin mabar | 180 / 300 detik | Hitung mundur, cocok dengan opsi client |
-| Admin mabar | 600 / 9000 | **Lihat catatan batasan di bawah** |
+| Admin mabar | 600 / 9000 | 10 menit / tanpa batas; jam dihitung dari server |
 
 Logika client menganggap durasi `>= 9000` sebagai tanpa batas. Timer berhenti
 saat `timeLeft` mencapai 0 dan modal hasil muncul.
 
-### Batasan yang diketahui: opsi 10 menit & tanpa batas di admin
+### Catatan: opsi 10 menit & tanpa batas
 
-Menu solo hanya punya opsi `120`, `180`, `300`, dan `9999`. Saat admin memilih
-**10 Menit** (`600`) atau **Tanpa Batas** (`9000`), client mencoba mengisi select
-durasi dengan nilai yang tidak ada. Nilai select menjadi kosong, `parseInt`
-menghasilkan `NaN`, dan timer tidak berjalan (efektif seperti tanpa batas).
+Menu solo hanya punya opsi `120`, `180`, `300`, dan `9999`. Di **mabar**, panel
+admin boleh memilih **10 Menit** (`600`) atau **Tanpa Batas** (`9000`): nilai itu
+dikirim server lewat `game_start` (`remaining`/`remainingMs`), dan client memakai
+deadline dari server, jadi hitung mundur 10 menit di mabar berjalan benar meskipun
+`<select>` lokal tidak punya opsi tersebut.
 
-Dampak praktis:
-
-- **10 Menit** di panel admin saat ini **tidak** menghasilkan hitung mundur 10
-  menit; permainan berjalan tanpa timer.
-- **Tanpa Batas** juga berjalan tanpa timer (sesuai tujuan), meskipun lewat jalur
-  `NaN`, bukan `9999`.
-
-Jika butuh 10 menit yang benar-benar berhitung, gunakan 5 menit atau tambahkan
-opsi `600`/`9000` yang konsisten di client (perubahan kode, di luar cakupan
-dokumen ini).
+Kalau `startGame()` dipanggil tanpa jam server (mis. dari mode solo) dengan nilai
+di luar opsi select, nilai select menjadi kosong, `parseInt` menghasilkan `NaN`,
+dan timer lokal tidak berjalan (efektif seperti tanpa batas). Untuk solo, pakai
+2/3/5 menit atau opsi Tanpa Batas yang tersedia.
 
 ---
 
-## 5. Pengacakan soal
+## 5. Pemilihan soal (bobot + jeda anti-ulang)
 
-- Bank difilter berdasarkan `topic`, lalu diacak dengan Fisher–Yates.
-- Satu soal selalu punya tepat satu jawaban benar dan satu pengecoh.
-- Posisi jawaban benar diacak 50:50 antara kiri dan kanan.
-- Saat pool habis, pool diacak ulang; soal bisa terulang.
-- Di mabar, tiap tim mengacak sendiri sehingga urutan berbeda.
-- Soal tetap sama secara konten; tidak ada pembagian soal dari server.
+- Bank soal sekarang **satu tema** (`living_room`, 50 soal). Pool difilter
+  berdasarkan `topic` lalu diacak sekali dengan Fisher–Yates saat permainan
+  dimulai.
+- Setiap tangga memilih satu soal secara **berbobot** (bukan queue yang diacak
+  ulang saat habis):
+  - soal yang **belum pernah tampil** → bobot `1`;
+  - soal yang **sudah tampil** → `0.03 × 0.20^(kemunculan − 1)`, yaitu 3% bobot
+    soal baru dan turun ×0.20 setiap kemunculan berikutnya;
+  - bila masih dalam **jeda 6 soal terakhir** → dikali `0.05` lagi;
+  - bobot minimum `1e-6`, jadi peluang tidak pernah benar-benar nol.
+- Efeknya: soal baru diprioritaskan, soal yang baru tampil tidak langsung muncul
+  lagi di tangga berikutnya, dan soal lama tetap bisa muncul kembali setelah cukup
+  lama. Seluruh 50 soal tetap dapat muncul dalam sesi panjang.
+- Riwayat anti-ulang disimpan **per tab** dengan kunci `id` soal dan **bertahan
+  antar ronde/rematch** di lobby yang sama; refresh halaman memulai riwayat baru.
+- Satu soal selalu punya tepat satu jawaban benar dan satu pengecoh. Posisi
+  jawaban benar diacak 50:50 antara kiri dan kanan.
+- Di mabar, setiap tab punya riwayat dan urutan sendiri, jadi urutan antar tim
+  berbeda. Soal tetap sama secara konten; tidak ada pembagian soal dari server.
+- Menambah soal tidak mengubah skor per jawaban; lihat
+  [05 · Menambah Soal](05-menambah-soal.md).
 
 ---
 

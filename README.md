@@ -2,7 +2,9 @@
 
 Game kuis Bahasa Inggris bertema naik tangga awan ke luar angkasa. Pemain menjawab
 soal dengan memilih tangga kiri/kanan; jawaban benar menaikkan bintang satu tingkat,
-jawaban salah membuat awan hancur dan pemain jatuh ke pijakan aman terakhir.
+jawaban salah membuat awan hancur dan pemain jatuh ke pijakan aman terakhir. Bank
+soal berisi **50 soal satu tema**, *Talking about My Living Room* (gabungan quiz_a
+1–25 + quiz_b 26–50).
 
 Dunia permainan ditampilkan dalam **3D** memakai renderer software buatan sendiri:
 proyeksi perspektif, painter's algorithm, dan shading toon digambar ke Canvas 2D —
@@ -163,8 +165,8 @@ Source server, test, `.git`, dan path traversal → `404`.
 ### 1. Alur solo
 
 1. Buka `/` → klik **Main Sendiri** → `/game.html`.
-2. Isi nama tim, pilih **materi** (4 topik atau gabungan) dan **durasi**
-   (2/3/5 menit atau tanpa batas).
+2. Isi nama tim, lalu pilih **durasi** (2/3/5 menit atau tanpa batas). Materi
+   otomatis **Talking about My Living Room** — satu-satunya tema (50 soal).
 3. Klik **MULAI NAIK TANGGA**. Kamera 3D menampilkan pulau bumi; bintang mulai dari
    tanah dan dua awan jawaban muncul di atasnya.
 4. Pilih dengan panah kiri/kanan (atau `A`/`D`, atau klik/tap awan).
@@ -181,9 +183,9 @@ Mode solo tidak menyentuh WebSocket sama sekali.
 
 ### 2. Alur mabar (VS)
 
-1. **Host** buka `/admin/`, isi password admin, pilih materi + durasi (3/5/10
-   menit atau tanpa batas), klik **Buat Room**. Bisa juga dari `/game.html`
-   (kartu VS).
+1. **Host** buka `/admin/`, isi password admin, pilih durasi (3/5/10 menit atau
+   tanpa batas), klik **Buat Room**. Materi otomatis **Talking about My Living
+   Room** (satu-satunya opsi). Bisa juga dari `/game.html` (kartu VS).
 2. Server membuat kode **6 karakter** (tanpa `I`, `O`, `0`, `1`), status room
    `lobby`, kapasitas **10 tim**.
 3. Host membagikan kode atau link. Link dibuat dari `location.origin`, jadi host
@@ -197,8 +199,9 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    mereset skor/telemetri semua tim, lalu menyiarkan
    `game_start{materi, duration, serverTime, remaining, remainingMs, round}` ke
    **semua** client sekaligus.
-7. Semua client memakai materi + durasi dari host (bukan pilihan lokal), tetapi
-   **urutan soal diacak per tim**, jadi tidak ada saling contekan posisi.
+7. Semua client memakai materi + durasi dari host (bukan pilihan lokal; materi
+   satu tema Living Room), tetapi **pemilihan soal dilakukan per tim** dengan
+   bobot anti-ulang, jadi urutan dan riwayat soal tiap tim berbeda.
 8. **Host** bisa menekan **🔴 Tonton Live** di panel admin setelah room dibuat.
    Panel memasang overlay iframe (tombol **Reload** / **Buka Tab Baru** /
    **Tutup**) berisi `/game.html?code=<KODE>&spectate=1`; halaman itu menampilkan
@@ -313,14 +316,14 @@ Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitekt
 Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
 
 ```bash
-npm test        # 5 file test game/renderer/struktur/landing (374 test), --test-isolation=none
+npm test        # 5 file test game/renderer/struktur/landing (392 test), --test-isolation=none
 npm run test:vs-server   # suite server WebSocket Node (83 test: 82 lulus, 1 gagal pre-existing)
 ```
 
-Total Node: **457 test** — **456 lulus**, **1 gagal pre-existing** di
+Total Node: **475 test** — **474 lulus**, **1 gagal pre-existing** di
 `tests/vs-server.test.js` (`supports rejoining a team after a disconnect`, yang
 mengakses `serverTeam.ws._teamId` internal; sengaja tidak diubah). Suite klien
-`tests/game-vs-client.test.js` sendiri berisi **110 test** (semua lulus).
+`tests/game-vs-client.test.js` sendiri berisi **111 test** (semua lulus).
 
 Atau per file:
 

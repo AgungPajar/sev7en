@@ -10,7 +10,7 @@ peta file, model data, siklus room, dan protokol WebSocket.
 | File | Tanggung jawab |
 |---|---|
 | `index.html` | Landing, modal join, redirect ke `game.html` |
-| `game.html` | Bank soal, engine game solo, renderer 3D software, client mabar (VS) |
+| `game.html` | Bank soal (50 soal tema `living_room`), engine game solo, renderer 3D software, client mabar (VS) |
 | `star_pou_sky_climber.html` | Versi solo tanpa blok VS |
 | `star_pou_vs.html` | Duplikat lama `game.html` (identik saat ini) |
 | `admin/index.html` | UI host: buat room, lobby, mulai, leaderboard, hasil/pemenang, main lagi, hapus room |
@@ -130,7 +130,7 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
 ```js
 {
   code: 'RQ7K2P',
-  materi: 'all',
+  materi: 'living_room',  // tema tunggal; server hanya meneruskan string
   duration: 180,
   status: 'lobby',        // 'lobby' | 'playing' (setelah selesai kembali 'lobby')
   hostId: 'abc1234',
@@ -194,7 +194,7 @@ berisi semua tim yang berbagi posisi teratas. Room tanpa tim menghasilkan
 ```json
 {
   "code": "RQ7K2P",
-  "materi": "all",
+  "materi": "living_room",
   "duration": 180,
   "status": "lobby",
   "teams": [
@@ -372,13 +372,17 @@ Semua pesan berupa objek JSON dengan field `type`.
 {
   "type": "create_room",
   "adminPassword": "sev7en-admin",
-  "materi": "all",
+  "materi": "living_room",
   "duration": 180
 }
 ```
 
 - Password dibandingkan dengan `ADMIN_PASSWORD`.
-- `materi` default `all`; `duration` default 180.
+- `duration` default 180.
+- `materi` default `all` di server, tetapi form admin/VS selalu mengirim
+  `living_room` (satu-satunya tema). Server **tidak** memvalidasi/whitelist tema.
+- Client menormalkan `materi` yang tidak ada di `QUESTION_BANK` (termasuk `all`
+  dan kode tema lama) menjadi `living_room` saat menerima `game_start`.
 - Balasan sukses: `room_created`.
 
 ### `join_room`
@@ -584,7 +588,7 @@ Contoh `game_start`:
 ```json
 {
   "type": "game_start",
-  "materi": "food_kitchen",
+  "materi": "living_room",
   "duration": 300,
   "serverTime": 1760000100000,
   "remaining": 297,
@@ -592,6 +596,10 @@ Contoh `game_start`:
   "round": 2
 }
 ```
+
+`materi` diteruskan apa adanya dari room. Client memakai tema tunggal: nilai yang
+tidak ada di `QUESTION_BANK` (mis. `all` dari room lama) dinormalkan ke
+`living_room` sebelum `startGame()` dijalankan.
 
 `round` mulai dari 1 pada ronde pertama dan bertambah setiap `start_game`.
 
@@ -662,7 +670,7 @@ Contoh `spectate_ok`:
   "code": "RQ7K2P",
   "room": {
     "code": "RQ7K2P",
-    "materi": "all",
+    "materi": "living_room",
     "duration": 180,
     "status": "playing",
     "teams": [
@@ -696,7 +704,7 @@ Tonton Live setelah pertandingan):
   "code": "RQ7K2P",
   "room": {
     "code": "RQ7K2P",
-    "materi": "all",
+    "materi": "living_room",
     "duration": 180,
     "status": "lobby",
     "teams": [
