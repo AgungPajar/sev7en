@@ -13,8 +13,10 @@ peta file, model data, siklus room, dan protokol WebSocket.
 | `game.html` | Bank soal, engine game solo, renderer 3D software, client mabar (VS) |
 | `star_pou_sky_climber.html` | Versi solo tanpa blok VS |
 | `star_pou_vs.html` | Duplikat lama `game.html` (identik saat ini) |
-| `admin/index.html` | UI host: buat room, lobby, mulai, leaderboard |
-| `vs-server/server.js` | HTTP health + WebSocket room server |
+| `admin/index.html` | UI host: buat room, lobby, mulai, leaderboard, hasil/pemenang, main lagi, hapus room |
+| `vs-server/server.js` | Adapter Node: HTTP health + WebSocket (`/ws`) |
+| `vs-server/server.bun.js` | Adapter Bun: file statis + WebSocket (`/ws`, `/vs-ws`) + health |
+| `vs-server/room-manager.js` | Logika room/protokol, timer akhir pertandingan, hasil/pemenang (dipakai kedua adapter) |
 | `vs-server/ecosystem.config.cjs` | Konfigurasi PM2 |
 | `nginx-vs-snippet.conf` | Contoh proxy WebSocket (lihat catatan path di deploy) |
 | `deploy-vs.ps1` | Skrip deploy lama/legacy |
@@ -39,10 +41,11 @@ Browser tim 10─┘                        └───────────
                                                 │
                                                 ├─ room_created / joined
                                                 ├─ room_update
-                                                ├─ game_start
+                                                ├─ game_start (round)
                                                 ├─ leaderboard
                                                 ├─ player_state (relay ke observer)
-                                                └─ game_end
+                                                ├─ game_end (MatchResult)
+                                                └─ room_deleted / team_offline
 ```
 
 - Host dan tim memakai koneksi WebSocket yang sama.
@@ -129,15 +132,22 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
   code: 'RQ7K2P',
   materi: 'all',
   duration: 180,
-  status: 'lobby',        // 'lobby' | 'playing' | 'ended'
+  status: 'lobby',        // 'lobby' | 'playing' (setelah selesai kembali 'lobby')
   hostId: 'abc1234',
   hostWs: WebSocket | null,
   createdAt: 1760000000000,
-  startedAt: 1760000100000,
+  startedAt: 1760000100000,      // null saat lobby / setelah pertandingan selesai
+  round: 1,                      // ronde ke-n; 0 sebelum start pertama, +1 tiap start
+  lastResult: MatchResult | null,// hasil ronde terakhir (untuk rejoin & spectate)
+  endTimer: Timeout | null,      // timer akhir otomatis (duration*1000 + grace)
   teams: Map<teamId, Team>,
   observers: Set<Connection>   // observer spectator (bukan tim)
 }
 ```
+
+Status `ended` tidak lagi disimpan di room. Saat pertandingan berakhir, server
+menyiarkan `game_end` lalu mengembalikan `status` ke `'lobby'` supaya kode room
+dapat dipakai untuk ronde berikutnya.
 
 ### Team
 
@@ -154,6 +164,29 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
 }
 ```
 
+### Hasil pertandingan (`MatchResult`)
+
+Dihitung di server oleh `matchResult(room, reason)` dan disimpan di
+`room.lastResult`:
+
+```js
+{
+  reason: 'time',        // 'time' (timer server) | 'host' (end_game)
+  endedAt: 1760000180000,
+  round: 2,
+  winner: { id, name, score, floor, streak, rank } | null, // null bila seri
+  tied: false,           // true bila skor & floor posisi teratas sama
+  winners: [ { ...team, rank: 1 } ],  // semua tim di posisi teratas
+  teams: [ { ...team, rank: 1 }, { ...team, rank: 2 } ]
+}
+```
+
+Urutan klasemen (`rankTeams`): skor menurun → `floor` menurun → nama (alfabetis)
+→ id sebagai penentu terakhir agar deterministik. `winner` hanya diisi bila
+posisi teratas tunggal; bila seri, `winner: null`, `tied: true`, dan `winners[]`
+berisi semua tim yang berbagi posisi teratas. Room tanpa tim menghasilkan
+`teams: []`, `winner: null`, `tied: false`.
+
 ### Bentuk publik yang dikirim ke client
 
 `roomPublic(room)` hanya mengirim data aman (tanpa socket/host):
@@ -169,6 +202,13 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
   ]
 }
 ```
+
+`roomPublic()` **tidak berubah** pada fitur ronde berulang dan hapus room: field-nya
+tetap `code`, `materi`, `duration`, `status`, dan `teams[]` (`id`, `name`, `score`,
+`floor`, `streak`). Pemenang, klasemen, `round`, dan `lastResult` dikirim terpisah
+di `game_end`, `rejoined`, `spectate_ok`, dan `rejoined_host`, bukan ditempel ke room publik.
+Nilai `status` yang mungkin dikirim sekarang hanya `lobby` dan `playing` (tidak ada
+`ended`).
 
 ### Telemetri pemain (`player_state`)
 
@@ -198,9 +238,11 @@ semua pesan room lama tetap kompatibel.
 
 | Konstanta | Nilai | Lokasi |
 |---|---|---|
-| `MAX_TEAMS` | 10 | `vs-server/server.js` |
-| `ROOM_TTL_MS` | 2 jam | `vs-server/server.js` |
-| Cleanup interval | 10 menit | `vs-server/server.js` |
+| `MAX_TEAMS` | 10 | `vs-server/room-manager.js` |
+| `ROOM_TTL_MS` | 2 jam | `vs-server/room-manager.js` |
+| Cleanup interval | 10 menit | adapter Node & Bun (`server.js`, `server.bun.js`) |
+| `MATCH_GRACE_MS` | 1200 ms | `vs-server/room-manager.js` |
+| Akhir otomatis match | `duration × 1000 + MATCH_GRACE_MS` (kecuali durasi ≥ 9000) | `vs-server/room-manager.js` |
 | Alfabet kode | `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (32 karakter) | server |
 | Panjang kode | 6 | server |
 | Panjang nama tim | 24 | server |
@@ -229,28 +271,34 @@ semua pesan room lama tetap kompatibel.
 create_room
    │
    ▼
- lobby ──(join_room)──► lobby ──(start_game)──► playing
-   │                                               │
-   │                                               ├─ score_update → leaderboard
-   │                                               ├─ player_state → observer
-   │                                               ├─ finish → leaderboard
-   │                                               └─ end_game → ended
+ lobby ──(join_room)──► lobby ──(start_game: round+1, reset skor)──► playing
+   ▲                                                                  │
+   │                                                                  ├─ score_update → leaderboard
+   │                                                                  ├─ player_state → observer
+   │                                                                  ├─ finish → leaderboard (saat grace)
+   │                                                                  ├─ end_game (host) ─┐
+   │                                                                  └─ timer server     ─┤
+   │                                                                                        ▼
+   │                        game_end (MatchResult) + room_update ◄───────────── _finishMatch
+   │                        status kembali 'lobby', tim tetap terdaftar
    │
-   ├─ spectate → observer (read-only)
+   ├─ delete_room (host) ──► room_deleted, room dihapus permanen
    └─ TTL 2 jam / restart server → dihapus
 ```
 
 | Aksi | Syarat | Efek |
 |---|---|---|
-| `create_room` | Password benar | Room baru, host terikat |
+| `create_room` | Password benar | Room baru (`round: 0`, `lastResult: null`), host terikat |
 | `join_room` | Room ada, status lobby, <10 tim, nama unik | Tim baru, broadcast `room_update` |
 | `rejoin` | Room & teamId ada | Socket tim diganti, kirim `rejoined` (+ `game_start` bila playing) |
-| `rejoin_host` | Room ada & password benar | Socket host diganti, kirim `rejoined_host` (+ `game_start` bila playing) |
-| `start_game` | Socket host, minimal 1 tim | Status playing, broadcast `game_start` |
+| `rejoin_host` | Room ada & password benar | Socket host diganti, kirim `rejoined_host` berisi `round` + `lastResult` (+ `game_start` bila playing) |
+| `start_game` | Socket host, minimal 1 tim, room **bukan** `playing` | Status playing, `round` +1, skor/floor/streak/telemetri tim direset, broadcast `game_start{round}`, jadwalkan akhir otomatis (kecuali durasi ≥ 9000); bila `playing` dibalas error |
 | `score_update` | Room playing, socket terikat tim | Simpan + broadcast `leaderboard` |
-| `finish` | Room ada, socket terikat tim | Update final + broadcast `leaderboard` |
-| `end_game` | Socket host | Status ended, broadcast `game_end` |
-| `spectate` | Password admin benar, room ada | Observer terdaftar di `observers`, balas `spectate_ok` + snapshot terakhir |
+| `finish` | Room playing, socket terikat tim | Update nilai final (nilai 0 diabaikan) + broadcast `leaderboard` |
+| `end_game` | Socket host, room **playing** | `_finishMatch('host')`: hitung hasil, status kembali lobby, broadcast `game_end` |
+| Timer akhir otomatis | Room playing, `0 < duration < 9000` | `_finishMatch('time')` pada `duration × 1000 + MATCH_GRACE_MS` |
+| `delete_room` | Socket host yang masih terikat room | Hentikan timer, hapus room, broadcast `room_deleted`, lepaskan semua socket |
+| `spectate` | Password admin benar, room ada | Observer terdaftar di `observers`, balas `spectate_ok` (+ `round`, `lastResult`) + snapshot terakhir |
 | `spectate_leave` | — | Observer dilepas dari room |
 | `player_state` | Room playing, socket terikat tim | Simpan `team.state`/`stateAt`, relay ke observer room itu |
 | Disconnect host | — | `hostWs = null`, room tetap hidup |
@@ -259,12 +307,19 @@ create_room
 
 Catatan:
 
-- `start_game` **tidak mengecek status**; host bisa memicu ulang dan merestart
-  permainan.
+- `start_game` hanya diterima saat room **tidak** `playing`. Dari lobby (termasuk
+  setelah ronde selesai) ia memulai ronde baru; bila dikirim saat `playing`,
+  server membalas `Pertandingan sedang berjalan` dan tidak mereset ronde. UI
+  panel admin juga menonaktifkan tombol selama bermain, jadi klik ganda aman.
 - `game_start` dikirim lewat `broadcast` (termasuk host) lalu dikirim sekali lagi
   khusus ke host, sehingga host menerima dua pesan.
-- `finish` belum dipakai UI client.
-- Room `ended` tetap berada di Map sampai TTL.
+- `finish` kini dipakai UI client: dikirim saat timer lokal habis, masih diterima
+  server selama masa grace sebelum akhir otomatis.
+- `_finishMatch` menyiarkan `game_end` **dan** `room_update`, lalu room kembali ke
+  `lobby`. Room tidak pernah berstatus `ended`; layar “SELESAI”/GAME OVER murni
+  ditampilkan client dari `game_end` (dan dari `lastResult` saat rejoin/spectate).
+- Room baru benar-benar hilang lewat `delete_room`, TTL, atau restart server; kode
+  room yang sama dipakai untuk semua ronde.
 
 ### Alur spectator
 
@@ -281,6 +336,11 @@ TIM 1..10 ──player_state ±8 Hz──► simpan team.state ──┼──re
 Observer hanya membaca: pesan `player_state` dari observer diabaikan karena
 socket observer tidak punya `teamId`. Relay `player_state` tidak pernah dikirim
 ke tim lain atau host biasa di room yang sama.
+
+Observer juga menerima `game_end` (kartu GAME OVER beserta pemenang dan klasemen)
+dan `room_deleted` (room dihapus host). Saat ronde berikutnya dimulai,
+`game_start` menghapus kartu hasil dan mereset snapshot kamera tim di layar
+spectator.
 
 ---
 
@@ -344,6 +404,9 @@ Semua pesan berupa objek JSON dengan field `type`.
   `localStorage`, jadi refresh halaman tetap menghilangkannya.
 - Setelah rejoin sukses, server mengirim `game_start` lagi bila room sedang
   `playing`.
+- Balasan `rejoined` juga membawa `round` dan `lastResult` (hasil ronde terakhir
+  atau `null`). Jika socket putus tepat saat ronde selesai, client pemain tetap
+  bisa menampilkan layar pemenang dari `lastResult` meski `game_end` terlewat.
 
 ### `rejoin_host`
 
@@ -353,7 +416,9 @@ Semua pesan berupa objek JSON dengan field `type`.
 
 - Hanya berhasil bila room ada dan password benar; kegagalan tidak dibalas.
 - Socket dijadikan host kembali (`hostWs`/`hostConn` diganti), lalu server
-  mengirim `rejoined_host`. Bila room sedang `playing`, `game_start` dikirim ulang.
+  mengirim `rejoined_host` berisi `room`, `round`, dan `lastResult` (hasil ronde
+  terakhir, atau `null` bila belum ada pertandingan). Bila room sedang `playing`,
+  `game_start` dikirim ulang.
 - Client mengirimnya otomatis saat WebSocket tersambung ulang selama kode room
   masih di memori (host membuat room dari `game.html`, atau panel admin yang
   tab-nya tidak di-refresh).
@@ -364,9 +429,13 @@ Semua pesan berupa objek JSON dengan field `type`.
 { "type": "start_game" }
 ```
 
-- Hanya socket host.
-- Minimal 1 tim.
-- Menyiarkan `game_start`.
+- Hanya socket host; socket yang sudah terlepas dari room dibalas error
+  `Hanya host yang bisa start`.
+- Minimal 1 tim; bila kosong dibalas `Belum ada tim join`.
+- Boleh dikirim dari lobby (memulai ronde baru) maupun saat `playing`.
+- Efek: `round` bertambah, skor/floor/streak dan telemetri semua tim direset,
+  status menjadi `playing`, `game_start` disiarkan (plus satu salinan ke host), dan
+  akhir otomatis dijadwalkan bila durasi < 9000.
 
 ### `score_update`
 
@@ -382,11 +451,15 @@ Semua pesan berupa objek JSON dengan field `type`.
 ### `finish`
 
 ```json
-{ "type": "finish", "score": 1300, "floor": 8 }
+{ "type": "finish", "score": 1300, "floor": 8, "streak": 4 }
 ```
 
-- Update final; nilai 0 diabaikan (memakai nilai sebelumnya).
+- Hanya diterima saat status room `playing` (termasuk selama masa grace sebelum
+  akhir otomatis). Di luar itu pesan diabaikan.
+- Update final; nilai 0 pada `score`/`floor` diabaikan (memakai nilai sebelumnya).
 - Menyiarkan `leaderboard` (tanpa field `streak`).
+- Dikirim client saat timer lokal tim habis, sebelum layar “WAKTU HABIS” sementara
+  tampil menunggu hasil resmi.
 
 ### `end_game`
 
@@ -394,8 +467,26 @@ Semua pesan berupa objek JSON dengan field `type`.
 { "type": "end_game" }
 ```
 
-- Hanya host.
-- Status `ended`, siarkan `game_end`.
+- Hanya host; pesan dari socket non-host diabaikan. Hanya diproses saat status room
+  `playing` — bila host mengirimnya saat tidak ada pertandingan, server membalas
+  error `Tidak ada pertandingan yang berjalan`.
+- Menghitung pemenang dari skor terakhir, menyimpan `lastResult`, mengembalikan
+  status room ke `lobby`, lalu menyiarkan `game_end` + `room_update`.
+
+### `delete_room`
+
+```json
+{ "type": "delete_room" }
+```
+
+- Hanya host yang masih terikat pada room. Socket non-host yang masih terikat
+  dibalas error `Hanya host yang bisa menghapus room`; socket yang sudah terlepas
+  dari room diabaikan.
+- Server menghentikan `endTimer` pertandingan, menghapus room dari `rooms`, lalu
+  menyiarkan `room_deleted{code, message}` ke tim, host, dan observer sebelum
+  melepaskan semua socket dari room.
+- Kode room tidak bisa dipakai lagi: `join_room` berikutnya dibalas
+  `Room tidak ditemukan`.
 
 ### `spectate`
 
@@ -407,8 +498,11 @@ Semua pesan berupa objek JSON dengan field `type`.
   ada dibalas `error`.
 - Socket yang lolos didaftarkan ke `room.observers`. Observer **tidak** masuk
   `teams`, tidak mengubah status room, dan tidak bisa memakai pesan host.
-- Balasan: `spectate_ok` berisi snapshot room, `startedAt`, `duration`, jumlah
-  observer, lalu `player_state` terakhir tiap tim (kalau ada).
+- Balasan: `spectate_ok` berisi snapshot room, `startedAt`, `duration`, `round`,
+  `lastResult`, jumlah observer, lalu `player_state` terakhir tiap tim (kalau ada).
+- `lastResult` diisi hasil ronde terakhir (atau `null` bila belum ada), sehingga
+  admin yang membuka **Tonton Live** setelah pertandingan selesai tetap melihat
+  GAME OVER + pemenang.
 - `startedAt` bernilai `null` selama room masih lobby; observer tetap bisa masuk
   dan menunggu sampai host memulai permainan.
 
@@ -444,20 +538,23 @@ Semua pesan berupa objek JSON dengan field `type`.
 |---|---|---|
 | `room_created` | `code`, `room` | Setelah create sukses |
 | `joined` | `code`, `teamId`, `room` | Setelah join sukses |
-| `rejoined` | `room` | Setelah rejoin sukses |
-| `rejoined_host` | `room` | Setelah rejoin_host sukses |
-| `room_update` | `room` | Tim join atau disconnect |
-| `game_start` | `materi`, `duration`, `serverTime`, `remaining`, `remainingMs` | Host memulai, rejoin, atau rejoin_host saat `playing` |
+| `rejoined` | `room`, `round`, `lastResult` | Setelah rejoin sukses |
+| `rejoined_host` | `room`, `round`, `lastResult` | Setelah rejoin_host sukses |
+| `room_update` | `room` | Tim join/disconnect, `start_game`, atau setelah `game_end` |
+| `game_start` | `materi`, `duration`, `serverTime`, `remaining`, `remainingMs`, `round` | Host memulai ronde, rejoin, atau rejoin_host saat `playing` |
 | `leaderboard` | `teams[]` | Skor berubah / finish |
-| `game_end` | — | Host mengakhiri |
-| `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `remaining`, `remainingMs`, `observers` | Setelah `spectate` sukses |
+| `game_end` | `reason`, `endedAt`, `round`, `winner`, `tied`, `winners[]`, `teams[]` | Host menekan AKHIRI atau timer server habis |
+| `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `remaining`, `remainingMs`, `round`, `lastResult`, `observers` | Setelah `spectate` sukses |
 | `player_state` | `teamId`, `s`, `t` | Relay telemetri tim ke observer |
 | `team_offline` | `teamId` | Socket tim putus |
+| `room_deleted` | `code`, `message` | Host menghapus room |
 | `error` | `message` | Validasi gagal |
 
-Pesan room lama (`room_update`, `leaderboard`, `game_start`, `game_end`,
-`error`) juga disiarkan ke observer room itu; bentuknya tidak berubah. Relay
-`player_state` hanya ke observer, tidak ke tim.
+Pesan room (`room_update`, `leaderboard`, `game_start`, `game_end`, `room_deleted`,
+`error`) disiarkan ke tim, host, dan observer room itu. Bentuk `room_update`,
+`leaderboard`, dan `error` tidak berubah; `game_end` sekarang berupa objek hasil
+(MatchResult), bukan pesan kosong. Relay `player_state` dan `team_offline` hanya ke
+observer, tidak ke tim.
 
 ### Jam pertandingan (`remaining` / `remainingMs`)
 
@@ -475,6 +572,13 @@ penuh), jadi timer tidak “mengulang”. Field `serverTime` (waktu mulai absolu
 tetap dikirim untuk kompatibilitas; client lama yang belum mengenal kedua field
 itu tetap memakai hitungan lokalnya.
 
+Server memakai jam yang sama untuk menjadwalkan akhir otomatis:
+`startedAt + duration × 1000 + MATCH_GRACE_MS`. Artinya `remaining`/`remainingMs`
+menyentuh 0 sekitar **1,2 detik sebelum `game_end`** — cukup untuk client
+menampilkan layar sementara “WAKTU HABIS” dan mengirim `finish` skor akhir, lalu
+`game_end` resmi menggantinya dengan pemenang + klasemen. Untuk durasi Tanpa Batas
+(≥ 9000) tidak ada timer server; host memakai `end_game`.
+
 Contoh `game_start`:
 
 ```json
@@ -484,9 +588,12 @@ Contoh `game_start`:
   "duration": 300,
   "serverTime": 1760000100000,
   "remaining": 297,
-  "remainingMs": 296540
+  "remainingMs": 296540,
+  "round": 2
 }
 ```
+
+`round` mulai dari 1 pada ronde pertama dan bertambah setiap `start_game`.
 
 Contoh `leaderboard`:
 
@@ -502,6 +609,44 @@ Contoh `leaderboard`:
 
 `teams` selalu diurutkan menurun berdasarkan `score`. Pada pesan dari `finish`,
 field `streak` tidak disertakan.
+
+Contoh `game_end` (objek MatchResult lengkap):
+
+```json
+{
+  "type": "game_end",
+  "reason": "time",
+  "endedAt": 1760000180000,
+  "round": 2,
+  "winner": {
+    "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1
+  },
+  "tied": false,
+  "winners": [
+    { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1 }
+  ],
+  "teams": [
+    { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1 },
+    { "id": "p2m7q", "name": "TIM B", "score": 700, "floor": 5, "streak": 0, "rank": 2 }
+  ]
+}
+```
+
+Bila posisi teratas seri, `winner` bernilai `null`, `tied: true`, dan `winners[]`
+berisi semua tim yang berbagi posisi teratas (masing-masing `rank: 1`). Setelah
+`game_end`, server mengirim `room_update` dengan `status: "lobby"`; room tidak
+dihapus.
+
+Contoh `rejoined_host`:
+
+```json
+{
+  "type": "rejoined_host",
+  "room": { "…": "roomPublic, status lobby atau playing" },
+  "round": 2,
+  "lastResult": { "…": "MatchResult ronde terakhir, atau null" }
+}
+```
 
 Contoh `error`:
 
@@ -528,6 +673,8 @@ Contoh `spectate_ok`:
   "duration": 180,
   "remaining": 143,
   "remainingMs": 142600,
+  "round": 2,
+  "lastResult": null,
   "observers": 1
 }
 ```
@@ -536,6 +683,47 @@ Contoh `spectate_ok`:
 memakai jam server yang sama seperti `game_start` sehingga hitungan di tab admin
 selaras dengan HUD para pemain; nilainya `null` saat room masih lobby. Snapshot
 telemetri dikirim menyusul sebagai pesan `player_state` terpisah per tim.
+`lastResult` berisi hasil ronde terakhir atau `null`; karena `start_game` mereset
+`lastResult`, nilainya `null` selama pertandingan berjalan dan terisi lagi setelah
+`game_end`.
+
+Contoh `spectate_ok` saat room sudah selesai dan kembali ke lobby (admin membuka
+Tonton Live setelah pertandingan):
+
+```json
+{
+  "type": "spectate_ok",
+  "code": "RQ7K2P",
+  "room": {
+    "code": "RQ7K2P",
+    "materi": "all",
+    "duration": 180,
+    "status": "lobby",
+    "teams": [
+      { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4 }
+    ]
+  },
+  "startedAt": null,
+  "duration": 180,
+  "remaining": null,
+  "remainingMs": null,
+  "round": 2,
+  "lastResult": {
+    "reason": "time",
+    "endedAt": 1760000180000,
+    "round": 2,
+    "winner": { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1 },
+    "tied": false,
+    "winners": [
+      { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1 }
+    ],
+    "teams": [
+      { "id": "x9k2a", "name": "TIM A", "score": 1300, "floor": 8, "streak": 4, "rank": 1 }
+    ]
+  },
+  "observers": 1
+}
+```
 
 Contoh `player_state` (relay ke observer):
 
@@ -554,6 +742,16 @@ Contoh `team_offline`:
 { "type": "team_offline", "teamId": "x9k2a" }
 ```
 
+Contoh `room_deleted`:
+
+```json
+{ "type": "room_deleted", "code": "RQ7K2P", "message": "Room dihapus oleh admin" }
+```
+
+Pesan ini dikirim tepat sebelum semua socket dilepas dari room. Client tim
+menampilkan modal **ROOM DIHAPUS** lalu kembali ke menu; spectator keluar dari
+room. Kode `RQ7K2P` tidak bisa dipakai lagi.
+
 ---
 
 ## 9. Perilaku koneksi dan error
@@ -568,6 +766,12 @@ Contoh `team_offline`:
   terpengaruh.
 - Server tidak mengirim heartbeat; koneksi mati terdeteksi lewat event `close`
   dari `ws`.
+- `end_game` saat tidak ada pertandingan dibalas error
+  `Tidak ada pertandingan yang berjalan`; `delete_room` dari non-host dibalas
+  error `Hanya host yang bisa menghapus room`; `start_game` dari socket yang sudah
+  terlepas dari room dibalas `Hanya host yang bisa start`.
+- Timer akhir otomatis dibersihkan saat `end_game`, `delete_room`, cleanup TTL, dan
+  shutdown server (`dispose`). Di Node timer di-`unref` agar tidak menahan proses.
 
 ---
 
@@ -577,6 +781,9 @@ Contoh `team_offline`:
 |---|---|---|
 | Persistence | Memori proses | Restart = data hilang |
 | Skor | Client-authoritative | Rawan manipulasi |
+| Pemenang | Dihitung server dari skor terakhir | Manipulasi skor client ikut menentukan pemenang |
+| Hasil pertandingan | `room.lastResult`, hanya ronde terakhir | Restart = hasil hilang; riwayat multi-ronde tidak disimpan |
+| Ronde | Satu room bisa dipakai banyak ronde | Skor direset tiap ronde; tidak ada podium lintas ronde |
 | Auth host | Hanya `_isHost` di socket | Refresh = kehilangan host |
 | Rejoin | Otomatis saat socket tersambung ulang; identitas di memori halaman | Refresh tim = keluar permanen, tidak ada tombol rejoin manual |
 | Soal | Hardcoded di HTML | Butuh deploy untuk ubah |
@@ -590,9 +797,12 @@ Contoh `team_offline`:
 
 ## 11. Titik ekstensi yang masuk akal
 
-Jika sistem dikembangkan, urutan prioritas yang wajar:
+Tombol **AKHIRI & UMUMKAN PEMENANG**, layar GAME OVER (pemain + spectator),
+ronde berulang lewat `start_game`, dan **HAPUS ROOM** sudah tersedia. Jika sistem
+dikembangkan lagi, urutan prioritas yang wajar:
 
-1. **Tombol end + podium** di admin, memakai `end_game` yang sudah ada.
+1. **Riwayat hasil per ronde + podium lintas ronde**: saat ini `lastResult` hanya
+   menyimpan ronde terakhir dan skor direset tiap ronde.
 2. **Rejoin tahan-refresh**: simpan `{code, teamId}` di `localStorage`, lalu kirim
    `rejoin` saat halaman dibuka. Saat ini rejoin hanya jalan untuk socket yang
    putus tanpa refresh.

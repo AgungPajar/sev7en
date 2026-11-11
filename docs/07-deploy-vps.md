@@ -114,7 +114,9 @@ hanya dokumentasi contoh.
 | `ADMIN_PASSWORD` | `sev7en-admin` | **Ya, untuk production** |
 
 Catatan: `MAX_TEAMS = 10`, TTL room 2 jam, dan interval cleanup 10 menit adalah
-konstanta di `server.js`, bukan environment.
+konstanta di `vs-server/room-manager.js` (dipakai bersama adapter Node dan Bun),
+bukan environment. Batas grace akhir pertandingan (`MATCH_GRACE_MS` = 1200 ms) juga
+konstanta di file itu.
 
 ---
 

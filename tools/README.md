@@ -16,7 +16,8 @@ Harness **tidak** menyentuh `game.html`, dan **tidak** menjalankan server.
    python -m http.server 4173
    ```
    Untuk skenario mode penonton yang benar-benar end-to-end (`spectate-live`,
-   `admin-tonton-live`) pakai server Bun yang sekaligus melayani WebSocket:
+   `admin-tonton-live`, `rematch-game-over`, `admin-rematch-hapus`) pakai server
+   Bun yang sekaligus melayani WebSocket:
    ```
    bun run vs-server/server.bun.js
    node tools/capture3d.mjs --url=http://127.0.0.1:3001/game.html --scenario=spectate-live
@@ -92,6 +93,8 @@ default diambil sekali di akhir skenario.
 | `spectate-live` | End-to-end: room nyata + 4 socket tim mengirim `player_state` → 4 kamera live + fokus |
 | `spectate-real-player` | End-to-end paling nyata: iframe halaman pemain (`game.html`) auto-join & main sungguhan, spectator admin menonton kamera pemain itu |
 | `clock-sync` | End-to-end jam: iframe pemain main, spectator admin dibuka 4 detik kemudian, lalu HUD timer pemain dibandingkan dengan status `BERMAIN mm:ss` admin (selisih harus ≤1 detik) |
+| `rematch-game-over` | End-to-end: room nyata, spectator menampilkan kartu **GAME OVER** + pemenang, lalu host memulai ronde 2 di lobby yang sama (kode & daftar tim tetap) |
+| `admin-rematch-hapus` | End-to-end panel admin: banner hasil + pemenang, tombol **MAIN LAGI** (ronde 2), akhiri manual, lalu **HAPUS ROOM** |
 | `spectate-fps` | Ukur fps rAF vs fps gambar mode penonton 4 kamera |
 | `admin-tonton-live` | End-to-end panel admin: buat room, 4 tim join + telemetri, klik **Tonton Live**, iframe 4 kamera + fokus/zoom |
 
@@ -99,9 +102,10 @@ Catatan mode penonton:
 
 - `spectate-grid/focus/zoom/fps` menyuntik snapshot sintetis langsung ke klien
   (tanpa room) supaya layout deterministic; cocok untuk screenshot dokumentasi.
-- `spectate-live`, `spectate-real-player`, `clock-sync`, dan `admin-tonton-live`
-  memakai protokol WebSocket sungguhan, jadi **wajib** pakai `--url=` ke server
-  Bun/Node yang punya endpoint `/ws` (`http://127.0.0.1:3001/game.html`, atau
+- `spectate-live`, `spectate-real-player`, `clock-sync`, `admin-tonton-live`,
+  `rematch-game-over`, dan `admin-rematch-hapus` memakai protokol WebSocket
+  sungguhan, jadi **wajib** pakai `--url=` ke server Bun/Node yang punya endpoint
+  `/ws` (`http://127.0.0.1:3001/game.html`, atau
   `http://127.0.0.1:3001/admin/` untuk skenario panel admin). Password admin
   default `sev7en-admin` (bisa diganti lewat env `ADMIN_PASSWORD` di server).
 - `spectate-real-player` menampilkan iframe halaman pemain di pojok kiri bawah
@@ -109,6 +113,14 @@ Catatan mode penonton:
   keduanya diambil setelah pemain beberapa kali menjawab soal.
 - Skenario `admin-tonton-live` menghasilkan 2 screenshot: `overlay-4-kamera` dan
   `overlay-fokus-zoom`.
+- `rematch-game-over` menjalankan ronde nyata sampai selesai, menunggu kartu
+  **GAME OVER** + pemenang muncul di spectator, lalu memulai ronde 2 lewat
+  `start_game` di lobby yang sama dan memverifikasi overlay hilang serta kamera
+  kembali live.
+- `admin-rematch-hapus` menguji alur panel admin end-to-end: banner hasil +
+  pemenang, klik **MAIN LAGI**, akhiri ronde 2 lewat tombol **AKHIRI & UMUMKAN
+  PEMENANG**, lalu **HAPUS ROOM** sampai kartu Room Aktif tertutup. Screenshot
+  diambil per tahap, tanpa path tetap yang dijanjikan di dokumentasi ini.
 
 ### Menambah skenario
 

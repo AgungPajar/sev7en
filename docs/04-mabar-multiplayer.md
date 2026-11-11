@@ -34,13 +34,17 @@ ADMIN                              TIM 1..10
   │                                  ├─ join_room ──► lobby
   │◄──────── room_update ────────────┤
   ├─ lihat daftar tim                │
-  ├─ MULAI MABAR ──► game_start ────►├─ mulai bermain
+  ├─ MULAI MABAR ──► game_start ────►├─ mulai bermain (ronde 1)
   │                                  ├─ kirim skor tiap ±400 ms
   │◄──────── leaderboard ────────────┤
-  ├─ pantau peringkat                ├─ timer habis → hasil lokal
-  ├─ 🔴 Tonton Live ──► spectator    │
+  ├─ pantau peringkat                ├─ timer habis → finish
+  ├─ 🔴 Tonton Live ──► spectator    │   └─ WAKTU HABIS (menunggu hasil)
   │   ◄── player_state ±8 Hz ────────┤
-  └─ lihat kamera semua tim          │
+  ├─ AKHIRI atau timer server        │
+  │   ──► game_end + pemenang ──────►├─ pemenang + klasemen
+  │◄──── room kembali LOBBY ──────────┤─ KEMBALI KE LOBI
+  ├─ MAIN LAGI ──► game_start ronde 2┘  (kode & tim yang sama)
+  └─ HAPUS ROOM ──► room_deleted ───► semua kembali ke menu
 ```
 
 ---
@@ -68,10 +72,12 @@ ADMIN                              TIM 1..10
 2. Klik **👥 GABUNG MABAR — Masuk Kode Room**.
 3. Isi kode + nama, klik **Join Lobby**.
 
-Setelah berhasil, tim masuk ke **waiting room** dan tidak bisa kembali ke menu
-selama sesi lobby masih aktif. Label tombol berubah menjadi **Keluar Lobby**,
-tetapi saat ini tombol tersebut belum benar-benar mengirim aksi keluar; untuk
-keluar, muat ulang halaman lalu join dengan nama lain.
+Setelah berhasil, tim masuk ke **waiting room** dan menunggu host memulai. Waiting
+room ini dipakai berkali-kali: setelah satu ronde selesai, tim melihat hasil resmi
+lalu menekan **KEMBALI KE LOBI** dan kembali ke waiting room yang sama. Label tombol
+ghost menjadi **Keluar Lobby**, tetapi tombol itu belum benar-benar mengirim aksi
+keluar; untuk keluar, muat ulang halaman lalu join dengan nama lain (atau tunggu
+admin menekan **HAPUS ROOM**).
 
 ---
 
@@ -83,7 +89,7 @@ keluar, muat ulang halaman lalu join dengan nama lain.
 | Nama tim | Wajib, di-trim, maksimal 24 karakter |
 | Keunikan nama | Case-insensitive; `Alpha` dan `alpha` dianggap sama |
 | Kapasitas | Maksimal 10 tim per room |
-| Waktu join | Hanya saat room berstatus **lobby** |
+| Waktu join | Hanya saat room berstatus **lobby** — termasuk di antara dua ronde |
 | Kode salah | `Room tidak ditemukan` |
 | Nama dobel | `Nama tim sudah dipakai` |
 | Room penuh | `Room penuh (10 tim)` |
@@ -110,6 +116,9 @@ salah baca.
 - Timer di leaderboard dan status spectator dihitung dari `remainingMs` yang
   dikirim server (jam yang sama dengan HUD pemain), bukan dari jam masing-masing
   perangkat — jadi angkanya selaras.
+- Setiap pertandingan adalah **satu ronde** bernomor (`round`). Saat host memulai
+  ronde berikutnya di lobby yang sama, skor/floor/streak semua tim direset dan
+  `round` bertambah; tim tidak perlu join ulang.
 
 Perbedaan tampilan yang perlu diketahui:
 
@@ -135,7 +144,14 @@ Yang terlihat di layar spectator:
 | Kamera 3D tiap tim (bintang, awan, papan soal) | telemetri `player_state` dari browser tim, ±8×/detik |
 | Header tiap pane: nama tim, skor, ketinggian (`floor × 100 m`), streak, status **LIVE** / **OFFLINE** | telemetri yang sama |
 | Bar info bawah: teks soal, dua chip opsi kiri/kanan (✓/✗), chip kejadian **⬆ NAIK +N** / **💥 SALAH** | telemetri yang sama |
+| Kartu **GAME OVER**: pemenang atau **SERI**, alasan, klasemen ber-`rank`, tombol **LIHAT KAMERA** / **KELUAR** | `game_end` dan `lastResult` pada `spectate_ok` |
 | Grid, tab tim, fokus, dan zoom | kontrol halaman spectator; detail di [03 · Panel Admin §6](03-panel-admin.md) |
+
+Saat ronde selesai, spectator otomatis menampilkan kartu **GAME OVER**. Tombol
+**LIHAT KAMERA** menutup kartu dan kamera terakhir tetap tampil; **KELUAR**/`Esc`
+keluar dari spectator. Bila admin baru membuka **Tonton Live** setelah pertandingan
+usai, hasilnya tetap muncul karena `spectate_ok` membawa `round` + `lastResult`.
+Ronde berikutnya (`game_start`) menghapus kartu dan mereset snapshot kamera.
 
 Grid menyesuaikan jumlah tim: 2 tim = 2 kolom, 3–4 = 2×2, 5–6 = 3 kolom,
 7–9 = 3×3, 10 = 4 kolom. Zoom tiap kamera 70%–240% dengan langkah 20%, reset ke
@@ -167,7 +183,9 @@ kecilkan jendela, tutup tab lain, atau pakai mode fokus (tombol `F`).
 
 ---
 
-## 7. Akhir permainan
+## 7. Akhir permainan & pemenang
+
+### 7.1 Jam pertandingan
 
 - Timer mengikuti **jam server**: server mengirim `remaining` (detik) dan
   `remainingMs` (milidetik) pada `game_start` dan `spectate_ok`, lalu tiap
@@ -175,20 +193,103 @@ kecilkan jendela, tutup tab lain, atau pakai mode fokus (tombol `F`).
   timer leaderboard, dan status **BERMAIN mm:ss** di layar admin menunjuk detik
   yang sama (bukan hanya ±1 detik), termasuk bila pesan datang terlambat atau
   tim rejoin di tengah match.
-- Saat habis, tim melihat modal hasilnya sendiri (poin, meter, jumlah tangga).
-- Durasi **Tanpa Batas** (9000 detik) tidak dihitung: HUD menampilkan ♾️ dan
-  spectator menampilkan status `BERMAIN` tanpa hitungan.
-- Server **tidak** mengakhiri room otomatis dan tidak menghitung pemenang global.
-- Leaderboard berhenti bergerak setelah tim berhenti mengirim skor.
-- Room tetap ada sampai TTL **2 jam** atau server restart.
-- `game_end` didukung protokol, tetapi belum ada tombol “akhiri” di panel admin.
+- Saat timer lokal habis, client mengirim `finish` berisi skor akhir dan
+  menampilkan layar sementara **WAKTU HABIS — menunggu hasil resmi dari server**.
+  Server masih menerima `finish` selama masa tenggang sebelum menghitung pemenang.
+- Durasi **Tanpa Batas** (≥ 9000 detik) tidak dihitung: HUD menampilkan ♾️ dan
+  spectator menampilkan status `BERMAIN` tanpa hitungan. Pertandingan hanya
+  berakhir lewat tombol host.
 
-Praktik yang disarankan: tetapkan pemenang secara manual dari leaderboard terakhir
-sebelum timer habis, atau minta semua tim berhenti di waktu yang sama.
+### 7.2 Akhir otomatis dan akhir manual
+
+- Server mengakhiri pertandingan **otomatis** pada `duration × 1000 + 1200 ms`
+  setelah `game_start`. Tambahan **1200 ms** adalah grace untuk menerima `finish`
+  skor akhir dari pemain yang timer lokalnya baru saja habis.
+- Untuk durasi **Tanpa Batas**, tidak ada akhir otomatis: host menekan
+  **AKHIRI & UMUMKAN PEMENANG** di panel admin, yang mengirim `end_game`.
+- `end_game` hanya diterima dari host (dari socket lain diabaikan) dan hanya saat
+  status room `playing`. Bila host mengirimnya saat tidak ada pertandingan
+  berjalan, server membalas `Tidak ada pertandingan yang berjalan`.
+
+### 7.3 Pemenang resmi dan klasemen
+
+Pemenang dihitung **server** dari skor terakhir, dengan urutan klasemen:
+
+1. skor tertinggi,
+2. bila skor sama — `floor` (jumlah tangga) lebih tinggi,
+3. bila masih sama — nama tim (alfabetis).
+
+`game_end` membawa `reason` (`"time"` atau `"host"`), `endedAt`, `round`,
+`winner` (objek tim atau `null` bila seri), `tied`, `winners[]` (semua tim di
+posisi teratas), dan `teams[]` terurut klasemen dengan field `rank` 1..n. Pesan
+yang sama diterima tim, host, dan observer spectator.
+
+Di browser tim, layar hasil menampilkan **pemenang** (atau **SERI**), alasan,
+poin + ketinggian pemenang, dan klasemen akhir dengan medali. Tombol
+**KEMBALI KE LOBI** mengembalikan tim ke waiting room.
+
+### 7.4 Setelah hasil: lobby tetap hidup
+
+- Room **tidak** menjadi `ended` dan **tidak** dihapus: setelah menyiarkan
+  `game_end`, server mengembalikan status room ke **lobby**. Tim tetap terdaftar.
+- Tim baru masih bisa join di antara ronde karena room kembali lobby.
+- Host bisa menekan **🔁 MAIN LAGI** untuk ronde berikutnya. Saat `start_game`
+  berikutnya, skor/floor/streak dan telemetri semua tim direset dan `round`
+  bertambah; kode room tidak berubah.
+- `lastResult` (hasil ronde terakhir) disimpan di room, jadi host yang
+  `rejoin_host` atau admin yang membuka **Tonton Live** setelah match selesai tetap
+  melihat pemenang dan klasemen.
+- Room hanya hilang lewat **HAPUS ROOM**, TTL **2 jam**, atau restart server.
+
+Praktik yang disarankan: biarkan server mengumumkan pemenang sendiri (timer atau
+tombol AKHIRI), lalu gunakan **MAIN LAGI** untuk ronde berikutnya. Tidak perlu
+membuat room baru atau menentukan pemenang manual dari leaderboard.
 
 ---
 
-## 8. Disconnect, refresh, dan reconnect
+## 8. Ronde berulang & menghapus room
+
+### 8.1 Satu lobby, banyak ronde
+
+Setelah `game_end`, kode room yang sama masih berlaku. Alur singkatnya:
+
+1. Ronde 1 berakhir (timer server atau tombol host) → semua tim melihat pemenang
+   dan klasemen.
+2. Tim menekan **KEMBALI KE LOBI**; host melihat banner hasil dan tombol
+   **🔁 MAIN LAGI**.
+3. Tim baru boleh join karena room kembali berstatus **lobby**.
+4. Host menekan **MAIN LAGI** → `round` bertambah, skor/floor/streak/telemetri
+   semua tim direset, lalu `game_start` baru dikirim.
+5. Ronde 2 berjalan; hasil ronde 1 diganti hasil ronde 2.
+
+Yang perlu diingat:
+
+- Tim tidak perlu join ulang; identitas tim dan koneksinya tetap.
+- Tim yang sempat disconnect di antara ronde tetap tercatat dan bisa rejoin
+  lewat socket; refresh halaman tetap menghilangkan slot (lihat bagian 9).
+- Riwayat skor per ronde tidak disimpan; `lastResult` hanya menyimpan hasil ronde
+  terakhir sampai ronde berikutnya dimulai.
+
+### 8.2 Menghapus room
+
+Tombol **🗑 HAPUS ROOM** di panel admin (dengan dialog konfirmasi) mengirim
+`delete_room`:
+
+- server menghentikan timer pertandingan dan menghapus room dari memori,
+- semua tim, host, dan observer menerima `room_deleted{code, message}`,
+- browser tim menampilkan modal **ROOM DIHAPUS** lalu kembali ke menu; kode tidak
+  bisa dipakai lagi (join berikutnya dibalas `Room tidak ditemukan`),
+- panel admin menutup kartu Room Aktif dan kembali ke form **Buat Room Baru**.
+- hanya host yang boleh menghapus; socket non-host yang masih terikat room dibalas
+  error `Hanya host yang bisa menghapus room`.
+
+Gunakan **HAPUS ROOM** saat sesi benar-benar selesai (mis. pergantian kelas).
+Untuk ronde berikutnya di kelas yang sama, cukup **MAIN LAGI** — kode room dan
+daftar tim tetap dipakai.
+
+---
+
+## 9. Disconnect, refresh, dan reconnect
 
 Ini bagian paling penting untuk operator lapangan.
 
@@ -210,7 +311,9 @@ lagi client mengirim `rejoin{code, teamId}` dan server mengikat ulang socket itu
 dan pane spectator pulih tanpa perlu join ulang. `game_start` yang dikirim ulang
 membawa `remaining` yang sudah berjalan, sehingga timer tim tidak kembali penuh
 dan tetap sama dengan admin. Host di `game.html` melakukan hal yang sama dengan
-`rejoin_host`, termasuk memakai password admin yang diisi di form.
+`rejoin_host`, termasuk memakai password admin yang diisi di form. Balasan
+`rejoined` juga membawa `round` + `lastResult`, jadi bila socket putus tepat saat
+ronde selesai, pemain tetap melihat pemenang meski `game_end` terlewat.
 
 ### Yang **tidak** terjadi
 
@@ -248,12 +351,16 @@ hilang), rejoin tidak menemukan room dan host harus membuat room baru.
 
 ---
 
-## 9. Tips operasional untuk kelas
+## 10. Tips operasional untuk kelas
 
 - Tempel kode room di papan tulis; jangan hanya mengandalkan chat.
 - Minta setiap tim menamai perangkatnya sesuai nama tim.
 - Pastikan semua tim sudah muncul di panel admin **sebelum** menekan mulai.
-- Tekan mulai **sekali**; jangan double-click.
+- Tekan mulai **sekali per ronde**; jangan double-click.
+- Setelah pemenang diumumkan, gunakan **🔁 MAIN LAGI** untuk ronde berikutnya —
+  kode room dan daftar tim tetap sama.
+- Tekan **🗑 HAPUS ROOM** hanya setelah sesi benar-benar selesai; kode tidak bisa
+  dipakai lagi setelah itu.
 - Siapkan link cadangan (kode saja) jika ada tim yang salah ketik nama.
 - Buka **🔴 Tonton Live** di perangkat host setelah mabar mulai untuk melihat
   semua tim; jangan tutup tab admin selama sesi.
@@ -262,16 +369,17 @@ hilang), rejoin tidak menemukan room dan host harus membuat room baru.
 
 ---
 
-## 10. Batasan mode mabar
+## 11. Batasan mode mabar
 
 | Batasan | Dampak |
 |---|---|
 | Maksimal 10 tim | Tim ke-11 ditolak |
-| Join hanya saat lobby | Tim terlambat tidak bisa masuk |
+| Join hanya saat lobby | Tim terlambat harus menunggu ronde selesai; room kembali lobby di antara ronde |
 | Rejoin hanya saat socket putus (tanpa refresh) | Refresh = kehilangan slot |
 | Tanpa database | Restart server = room hilang |
-| Tanpa podium global | Pemenang ditentukan manual |
-| Skor dari client | Rawan manipulasi |
+| Pemenang resmi per ronde | Dihitung server dari skor terakhir; tidak ada podium/riwayat lintas ronde |
+| HAPUS ROOM permanen | Kode room tidak bisa dipakai lagi |
+| Skor dari client | Rawan manipulasi, termasuk memengaruhi pemenang |
 | Telemetri spectator 8 Hz | Gerakan di pane diinterpolasi; bukan stream video |
 | Spectator merender semua kamera | ±30 fps; beban CPU ada di tab admin |
 | Satu proses server | Tidak ada scaling multi-instance |

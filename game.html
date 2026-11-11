@@ -274,6 +274,23 @@
 .vs-btn-ghost{background:#f1f5f9;color:#0f172a}
 .vs-code{font-family:monospace;letter-spacing:3px;font-size:28px;font-weight:900;color:#0f172a;background:#fef3c7;border:2px dashed #f59e0b;border-radius:12px;padding:8px 14px;text-align:center}
 .vs-lobby-team{padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;font-weight:700}
+/* Layar hasil akhir (ronde selesai): pemenang + klasemen + jalan kembali ke lobby */
+#vs-result{position:fixed;inset:0;z-index:95;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.82);backdrop-filter:blur(6px);padding:16px}
+#vs-result .vs-result-card{width:min(560px,94vw);max-height:92vh;overflow:auto;background:linear-gradient(180deg,#ffffff,#f8fafc);border-radius:24px;border:4px solid #fbbf24;box-shadow:0 24px 60px rgba(0,0,0,.5);padding:22px 24px 18px;text-align:center}
+.vs-result-kicker{font-size:11px;font-weight:900;letter-spacing:2px;color:#b45309;text-transform:uppercase}
+.vs-result-trophy{font-size:52px;line-height:1;margin:4px 0 2px}
+#vs-result-title{margin:0;font-size:clamp(22px,4.6vw,34px);font-weight:900;color:#0f172a;line-height:1.12;overflow-wrap:anywhere}
+.vs-result-sub{margin:6px 0 10px;font-size:13px;font-weight:700;color:#475569}
+#vs-result-champion{font-size:14px;font-weight:800;color:#1d4ed8;margin-bottom:10px}
+#vs-result-list{display:grid;gap:5px;max-height:34vh;overflow:auto;text-align:left;margin:6px 0 12px}
+.vs-result-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:10px;background:#f1f5f9;border:1px solid #e2e8f0;font-size:12.5px;font-weight:700;color:#0f172a}
+.vs-result-row.me{border-color:#3b82f6;background:rgba(59,130,246,.12)}
+.vs-result-row .rk{width:24px;flex:none;text-align:center;font-weight:900;color:#b45309}
+.vs-result-row .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vs-result-row .sc{font-variant-numeric:tabular-nums;color:#1d4ed8;font-weight:900}
+#vs-result-note{font-size:12px;color:#64748b;margin:10px 0 0}
+#vs-result .vs-result-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+#vs-result .vs-btn{width:auto;padding:12px 18px}
 </style>
 
 <div id="vs-modal">
@@ -292,7 +309,7 @@
         <div class="vs-code" id="vs-code-display">—</div>
         <p style="text-align:center;margin:8px 0 0">Share kode ini / link: <span id="vs-share-link" style="font-weight:800;word-break:break-all"></span> <button class="vs-btn vs-btn-ghost" style="margin-top:8px" onclick="vsCopyLink()">📋 Salin Link</button></p>
         <div id="vs-lobby-host" style="margin-top:10px;max-height:180px;overflow:auto;display:grid;gap:6px"></div>
-        <button class="vs-btn vs-btn-accent" style="margin-top:10px" onclick="vsStartGame()">▶️ MULAI MABAR (semua tim serentak)</button>
+        <button class="vs-btn vs-btn-accent" style="margin-top:10px" id="vs-host-start" onclick="vsStartGame()">▶️ MULAI MABAR (semua tim serentak)</button>
       </div>
       <button class="vs-btn vs-btn-ghost" onclick="vsClose()">Tutup</button>
       <p id="vs-create-err" style="color:#ef4444;font-weight:800;display:none"></p>
@@ -314,6 +331,22 @@
     </div>
   </div>
 </div>
+
+<!-- Layar GAME OVER untuk pemain (mode VS): pemenang + klasemen akhir -->
+<div id="vs-result">
+  <div class="vs-result-card">
+    <div class="vs-result-kicker" id="vs-result-kicker">GAME OVER</div>
+    <div class="vs-result-trophy" id="vs-result-trophy">🏆</div>
+    <h2 id="vs-result-title">SELESAI</h2>
+    <p class="vs-result-sub" id="vs-result-sub">Menunggu hasil resmi…</p>
+    <div id="vs-result-champion"></div>
+    <div id="vs-result-list"></div>
+    <div class="vs-result-actions">
+      <button class="vs-btn vs-btn-accent" id="vs-result-lobby-btn" onclick="vsBackToLobby()">KEMBALI KE LOBI</button>
+    </div>
+    <p id="vs-result-note">Lobi tetap aktif — host bisa memulai ronde berikutnya kapan saja.</p>
+  </div>
+</div>
 <!-- @vs-only -->
 <style>
   /* Mode penonton admin: HUD game disembunyikan; spectator menggambar UI-nya
@@ -324,6 +357,7 @@
   body.spectate-mode #modal,
   body.spectate-mode #vs-bar,
   body.spectate-mode #vs-leaderboard,
+  body.spectate-mode #vs-result,
   body.spectate-mode #vs-modal { display: none !important; }
   body.spectate-mode canvas { cursor: default; }
 </style>
@@ -1715,7 +1749,7 @@
 // ================= VS CLIENT =================
 const VS = {
   enabled: false, code: null, teamId: null, teamName: null, isHost: false,
-  ws: null, lb: [],
+  ws: null, lb: [], room: null, lastResult: null, matchOver: false, round: 0,
   getWsUrls(){
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = location.hostname;
@@ -1778,6 +1812,8 @@ function vsConnect(){
     if (SPEC.active) { vsSpecOnMessage(msg); return; }
     if(msg.type==='room_created'){
       VS.code = msg.code; VS.isHost = true;
+      VS.room = msg.room || null; VS.matchOver = false; VS.lastResult = null;
+      vsHideResult();
       document.getElementById('vs-code-display').textContent = VS.code;
       document.getElementById('vs-share-link').textContent = location.origin + '/game.html?code=' + VS.code + '#join';
       document.getElementById('vs-create-result').style.display='block';
@@ -1785,41 +1821,46 @@ function vsConnect(){
       vsShowBar(msg.room);
     } else if(msg.type==='joined'){
       VS.code = msg.code; VS.teamId = msg.teamId; VS.isHost = false;
-      // KUNCI waiting room — jangan balik ke menu lagi
-      const _early2=document.getElementById('early-join-hide-style'); if(_early2 && _early2.parentNode) _early2.parentNode.removeChild(_early2);
-      document.getElementById('modal').style.display='none';
-      document.getElementById('vs-modal').style.display='flex';
-      document.getElementById('vs-card-create').style.display='none';
-      document.getElementById('vs-card-join').style.display='block';
-      const _jc=document.getElementById('vs-join-code'); if(_jc) _jc.style.display='none';
-      const _jn=document.getElementById('vs-join-name'); if(_jn) _jn.style.display='none';
-      const _jb=document.querySelector('#vs-card-join .vs-btn-primary'); if(_jb) _jb.style.display='none';
-      const _jt=document.querySelector('#vs-card-join .vs-btn-ghost'); if(_jt) _jt.textContent='Keluar Lobby';
-      document.getElementById('vs-join-lobby').style.display='block';
-      document.getElementById('vs-join-status').textContent = 'kamu di lobby ('+VS.code+') — menunggu host memulai…';
-      document.getElementById('vs-join-err').style.display='none';
-      vsShowBar(msg.room);
-      renderLobbyGuest(msg.room);
+      VS.room = msg.room || null; VS.matchOver = false; VS.lastResult = null;
+      vsHideResult();
+      vsShowGuestWaiting(msg.room, 'kamu di lobby ('+VS.code+') — menunggu host memulai…');
     } else if(msg.type==='room_update'){
+      if(msg.room) VS.room = msg.room;
       if(VS.isHost) renderLobbyHost(msg.room);
-      else renderLobbyGuest(msg.room);
+      else if(VS.teamId) renderLobbyGuest(msg.room);
       vsShowBar(msg.room);
     } else if(msg.type==='rejoined'){
-      VS.code = msg.room.code || VS.code;
+      VS.code = (msg.room && msg.room.code) || VS.code;
+      if(msg.room) VS.room = msg.room;
       vsShowBar(msg.room);
       renderLobbyGuest(msg.room);
       const st=document.getElementById('vs-join-status');
       if(st) st.textContent='tersambung kembali ('+VS.code+') — menunggu host memulai…';
+      // Socket putus tepat saat ronde selesai: hasil resmi tetap ditampilkan.
+      if (VS.enabled && msg.lastResult && msg.room && msg.room.status !== 'playing') {
+        VS.matchOver = true;
+        vsShowResult(msg.lastResult);
+      }
     } else if(msg.type==='rejoined_host'){
+      if(msg.room) VS.room = msg.room;
+      if(msg.round) VS.round = msg.round;
       vsShowBar(msg.room);
       renderLobbyHost(msg.room);
+      // Host yang menyambung ulang setelah pertandingan selesai tetap melihat
+      // layar hasil + pemenang sebelum memulai ronde berikutnya.
+      if (msg.lastResult && msg.room && msg.room.status !== 'playing') {
+        VS.matchOver = true;
+        vsShowResult(msg.lastResult);
+      }
     } else if(msg.type==='game_start'){
       vsHandleGameStart(msg);
     } else if(msg.type==='leaderboard'){
       VS.lb = msg.teams;
       renderLeaderboard(msg.teams);
     } else if(msg.type==='game_end'){
-      endGame();
+      vsHandleGameEnd(msg);
+    } else if(msg.type==='room_deleted'){
+      vsHandleRoomDeleted(msg);
     } else if(msg.type==='error'){
       const isCreate = VS.isHost || !VS.teamId;
       const el = isCreate ? document.getElementById('vs-create-err') : document.getElementById('vs-join-err');
@@ -1833,11 +1874,36 @@ function vsConnect(){
 }
 
 function vsShowBar(room){
+  if (room) VS.room = room;
   const bar = document.getElementById('vs-bar'); if(!bar) return;
   bar.style.display='flex';
-  document.getElementById('vs-code-badge').textContent = 'KODE ' + (VS.code||room.code||'—');
-  document.getElementById('vs-teams-count').textContent = (room.teams.length) + ' tim';
+  document.getElementById('vs-code-badge').textContent = 'KODE ' + (VS.code||(room&&room.code)||'—');
+  document.getElementById('vs-teams-count').textContent = ((room&&room.teams)||[]).length + ' tim';
   const lb = document.getElementById('vs-leaderboard'); if(lb) lb.style.display='block';
+}
+
+function vsRemoveEarlyHide(){
+  const el=document.getElementById('early-join-hide-style');
+  if(el && el.parentNode) el.parentNode.removeChild(el);
+}
+
+// Tampilan tim yang sudah join: waiting room (tanpa input kode/nama).
+function vsShowGuestWaiting(room, statusText){
+  if (room) VS.room = room;
+  vsRemoveEarlyHide();
+  document.getElementById('modal').style.display='none';
+  document.getElementById('vs-modal').style.display='flex';
+  document.getElementById('vs-card-create').style.display='none';
+  document.getElementById('vs-card-join').style.display='block';
+  const jc=document.getElementById('vs-join-code'); if(jc) jc.style.display='none';
+  const jn=document.getElementById('vs-join-name'); if(jn) jn.style.display='none';
+  const jb=document.querySelector('#vs-card-join .vs-btn-primary'); if(jb) jb.style.display='none';
+  const jt=document.querySelector('#vs-card-join .vs-btn-ghost'); if(jt) jt.textContent='Keluar Lobby';
+  document.getElementById('vs-join-lobby').style.display='block';
+  document.getElementById('vs-join-status').textContent = statusText || ('kamu di lobby ('+VS.code+') — menunggu host memulai…');
+  document.getElementById('vs-join-err').style.display='none';
+  vsShowBar(room);
+  renderLobbyGuest(room || VS.room || {teams:[]});
 }
 
 function renderLobbyHost(room){
@@ -1952,6 +2018,12 @@ window.vsStartGame = ()=>{
 };
 
 function vsHandleGameStart(msg){
+  vsHideResult();
+  VS.matchOver = false;
+  VS.lastResult = null;
+  VS.round = Number(msg && msg.round) || VS.round || 1;
+  VS.lb = [];
+  if (typeof renderLeaderboard === 'function') renderLeaderboard([]);
   VS.enabled = true;
   document.getElementById('vs-modal').style.display='none';
   document.getElementById('modal').style.display='none';
@@ -1973,6 +2045,194 @@ function vsHandleGameStart(msg){
   vsSyncMatchClock(msg);
   // Kirim telemetri posisi/soal ke server supaya admin bisa menonton live.
   vsStartTelemetry();
+}
+
+// ================= LAYAR HASIL & LIFECYCLE RONDE =================
+// Satu lobby dipakai berkali-kali: setelah `game_end`, room kembali ke lobby
+// (tim tetap terdaftar, skor direset saat ronde berikutnya dimulai). Layar hasil
+// menampilkan pemenang resmi dari server + klasemen akhir.
+function vsEscapeHtml(v){
+  return String(v==null?'':v).replace(/[&<>"']/g, function(c){
+    return c==='&'?'&amp;':c==='<'?'&lt;':c==='>'?'&gt;':c==='"'?'&quot;':'&#39;';
+  });
+}
+function vsHideResult(){
+  const el=document.getElementById('vs-result');
+  if(el) el.style.display='none';
+}
+function vsReasonText(reason){
+  if(reason==='time') return 'Waktu habis';
+  if(reason==='host') return 'Diakhiri host';
+  return 'Pertandingan selesai';
+}
+function vsMedal(rank){
+  if(rank===1) return '🥇';
+  if(rank===2) return '🥈';
+  if(rank===3) return '🥉';
+  return String(rank||'-')+'.';
+}
+function vsShowResult(result, opts){
+  opts = opts || {};
+  const box=document.getElementById('vs-result'); if(!box) return;
+  const pending = !result || !!opts.pending;
+  const teams = (!pending && Array.isArray(result.teams)) ? result.teams : [];
+  const round = (!pending && result.round) || VS.round || 0;
+  const kicker=document.getElementById('vs-result-kicker');
+  const trophy=document.getElementById('vs-result-trophy');
+  const title=document.getElementById('vs-result-title');
+  const sub=document.getElementById('vs-result-sub');
+  const champ=document.getElementById('vs-result-champion');
+  const list=document.getElementById('vs-result-list');
+  const note=document.getElementById('vs-result-note');
+  VS.lastResult = pending ? null : result;
+  VS.matchOver = true;
+  if(pending){
+    const ownScore = (typeof score==='number') ? score : 0;
+    const ownFloor = (typeof floorLevel==='number') ? floorLevel : 0;
+    if(kicker) kicker.textContent = 'RONDE ' + (VS.round||1) + ' · WAKTU HABIS';
+    if(trophy) trophy.textContent='⏳';
+    if(title) title.textContent='WAKTU HABIS!';
+    if(sub) sub.textContent='Skor kamu '+ownScore+' poin · '+(ownFloor*100)+' m — menunggu hasil resmi dari server…';
+    if(champ) champ.textContent='';
+    if(list) list.innerHTML='';
+    if(note) note.textContent='Pemenang dihitung dari skor akhir semua tim. Lobi tetap aktif setelah hasil keluar.';
+  } else {
+    const tied=!!result.tied;
+    const winners=Array.isArray(result.winners)?result.winners:[];
+    const winner=result.winner;
+    if(kicker) kicker.textContent='GAME OVER · RONDE '+(round||1);
+    if(tied && winners.length>1){
+      if(trophy) trophy.textContent='🤝';
+      if(title) title.textContent='SERI!';
+      if(sub) sub.textContent=vsReasonText(result.reason)+' · posisi teratas diisi '+winners.length+' tim';
+      if(champ) champ.textContent=winners.map(function(t){return t.name;}).join(' · ')+' berbagi posisi teratas';
+    } else if(winner){
+      if(trophy) trophy.textContent='🏆';
+      if(title) title.textContent=(winner.name||'TIM')+' MENANG!';
+      if(sub) sub.textContent=vsReasonText(result.reason)+' · Ronde '+(round||1);
+      if(champ) champ.textContent=winner.score+' poin · '+(winner.floor*100)+' m · streak x'+(winner.streak||0);
+    } else {
+      if(trophy) trophy.textContent='🏁';
+      if(title) title.textContent='SELESAI';
+      if(sub) sub.textContent=vsReasonText(result.reason);
+      if(champ) champ.textContent='';
+    }
+    if(list){
+      if(teams.length){
+        list.innerHTML=teams.slice(0,10).map(function(t,i){
+          const rank=Number(t.rank)||i+1;
+          const me=t.id===VS.teamId;
+          return '<div class="vs-result-row'+(me?' me':'')+'">'
+            +'<span class="rk">'+vsMedal(rank)+'</span>'
+            +'<span class="nm">'+vsEscapeHtml(t.name)+(me?' (kamu)':'')+'</span>'
+            +'<span class="sc">'+(Number(t.score)||0)+' pts · '+(Number(t.floor)||0)*100+' m</span>'
+            +'</div>';
+        }).join('');
+      } else {
+        list.innerHTML='';
+      }
+    }
+    if(note) note.textContent='Lobi '+(VS.code||'')+' tetap aktif — host bisa memulai ronde berikutnya kapan saja.';
+  }
+  box.style.display='flex';
+}
+function vsBackToLobby(){
+  vsHideResult();
+  if(!VS.teamId && !VS.isHost){ vsClose(); return; }
+  document.getElementById('modal').style.display='none';
+  const vsm=document.getElementById('vs-modal'); if(vsm) vsm.style.display='flex';
+  if(VS.isHost){
+    document.getElementById('vs-card-create').style.display='block';
+    document.getElementById('vs-card-join').style.display='none';
+    if(VS.code){
+      document.getElementById('vs-code-display').textContent=VS.code;
+      document.getElementById('vs-share-link').textContent=location.origin+'/game.html?code='+VS.code+'#join';
+      document.getElementById('vs-create-result').style.display='block';
+    }
+    renderLobbyHost(VS.room || {teams:[]});
+    const err=document.getElementById('vs-create-err'); if(err) err.style.display='none';
+    const hostStart=document.getElementById('vs-host-start');
+    if(hostStart) hostStart.textContent='▶️ MULAI RONDE '+(Math.max(1,(VS.round||1)+1));
+  } else {
+    vsShowGuestWaiting(VS.room, 'ronde selesai — menunggu host memulai ronde berikutnya…');
+  }
+}
+function vsHandleGameEnd(msg){
+  vsStopTelemetry();
+  vsStopMatchClock();
+  VS.matchOver = true;
+  gameRunning = false;
+  if (timerInterval) { try { clearInterval(timerInterval); } catch(e) {} timerInterval = null; }
+  // Klien lama / solo: perilaku lama tetap dipertahankan.
+  if (!VS.enabled) { endGame(); return; }
+  let result = null;
+  if (msg && (Array.isArray(msg.teams) || msg.winner || msg.winners || msg.tied)) {
+    result = {
+      reason: msg.reason || '',
+      endedAt: msg.endedAt || Date.now(),
+      round: msg.round || 0,
+      winner: msg.winner || null,
+      tied: !!msg.tied,
+      winners: Array.isArray(msg.winners) ? msg.winners : [],
+      teams: Array.isArray(msg.teams) ? msg.teams : [],
+    };
+  }
+  if (result && result.teams.length) {
+    VS.lb = result.teams;
+    renderLeaderboard(result.teams);
+  }
+  if (result) {
+    vsShowResult(result);
+  } else {
+    // Server lama mengirim game_end tanpa payload hasil: tetap tampilkan layar
+    // selesai (bukan "menunggu hasil resmi" selamanya), lalu host bisa MAIN LAGI.
+    vsShowResult({
+      reason: 'host', endedAt: Date.now(), round: VS.round || 0,
+      winner: null, tied: false, winners: [], teams: [],
+    });
+  }
+}
+function vsLocalTimeUp(){
+  if (!VS.enabled || SPEC.active) return false;
+  if (VS.matchOver) return true;
+  VS.matchOver = true;
+  gameRunning = false;
+  if (timerInterval) { try { clearInterval(timerInterval); } catch(e) {} timerInterval = null; }
+  vsStopTelemetry();
+  vsStopMatchClock();
+  // Skor akhir masih sempat diterima server selama grace sebelum pemenang diumumkan.
+  try {
+    if(VS.ws && VS.ws.readyState===1){
+      VS.ws.send(JSON.stringify({
+        type:'finish',
+        score:(typeof score==='number'?score:0),
+        floor:(typeof floorLevel==='number'?floorLevel:0),
+        streak:(typeof streak==='number'?streak:0),
+      }));
+    }
+  } catch(e) {}
+  vsShowResult(null, {pending:true});
+  return true;
+}
+function vsHandleRoomDeleted(msg){
+  const code = (msg && msg.code) || VS.code || '';
+  vsStopTelemetry();
+  vsStopMatchClock();
+  gameRunning = false;
+  if (timerInterval) { try { clearInterval(timerInterval); } catch(e) {} timerInterval = null; }
+  VS.enabled = false; VS.code = null; VS.teamId = null; VS.isHost = false;
+  VS.room = null; VS.matchOver = false; VS.lastResult = null; VS.round = 0;
+  vsHideResult();
+  document.getElementById('vs-modal').style.display='none';
+  document.getElementById('vs-bar').style.display='none';
+  document.getElementById('vs-leaderboard').style.display='none';
+  try { if(VS.ws) VS.ws.close(); } catch(e) {}
+  VS.ws = null;
+  vsRemoveEarlyHide();
+  const modal=document.getElementById('modal'); if(modal) modal.style.display='flex';
+  const title=document.getElementById('modal-title'); if(title) title.textContent='ROOM DIHAPUS';
+  const desc=document.getElementById('modal-desc');
+  if(desc) desc.textContent='Admin telah menghapus lobby '+(code||'ini')+'. Kode room tidak bisa dipakai lagi — buat room baru atau main solo.';
 }
 
 // Hook score: whenever score/floor changes in VS, push to server
@@ -2120,6 +2380,7 @@ const SPEC_TAU = Math.PI * 2;
 const SPEC = {
   active: false, connected: false, code: null, pass: '',
   status: 'lobby', startedAt: null, deadlineAt: 0, duration: 0,
+  round: 0, result: null, resultVisible: false,
   teams: new Map(), order: [], selectedId: null, focus: false,
   hover: null, err: '',
   lastFrameAt: 0, lastDrawAt: 0, fps: 0, layout: null,
@@ -2199,6 +2460,7 @@ function specSyncDeadline(remaining, duration, remainingMsVal) {
   return true;
 }
 function specStatusText(now) {
+  if (SPEC.resultVisible) return 'SELESAI';
   if (SPEC.status === 'playing') {
     const d = Number(SPEC.duration) || 0;
     const st = Number(SPEC.startedAt) || 0;
@@ -2214,6 +2476,45 @@ function specStatusText(now) {
   }
   if (SPEC.status === 'ended') return 'SELESAI';
   return 'LOBBY';
+}
+
+// --- Hasil akhir (Game Over) di layar spectator
+function specSyncResultTeams(result) {
+  if (!result || !Array.isArray(result.teams)) return;
+  for (const info of result.teams) {
+    const team = specEnsureTeam(info.id, info.name);
+    if (!team) continue;
+    if (info.name) team.name = String(info.name).slice(0, 24);
+    if (typeof info.score === 'number' && isFinite(info.score)) team.score = Math.max(0, info.score | 0);
+    if (typeof info.floor === 'number' && isFinite(info.floor)) team.floor = Math.max(0, info.floor | 0);
+    if (typeof info.streak === 'number' && isFinite(info.streak)) team.streak = info.streak | 0;
+  }
+}
+function specShowResult(result) {
+  if (!result || typeof result !== 'object') return false;
+  SPEC.result = result;
+  SPEC.resultVisible = true;
+  SPEC.status = 'ended';
+  SPEC.deadlineAt = 0;
+  SPEC.round = Number(result.round) || SPEC.round || 0;
+  specSyncResultTeams(result);
+  return true;
+}
+function specHideResult() {
+  SPEC.result = null;
+  SPEC.resultVisible = false;
+}
+function specResetRoundTeams() {
+  for (const team of SPEC.teams.values()) {
+    team.snap = null;
+    team.target = null;
+    team.prevFloor = null;
+    team.prevStreak = null;
+    team.event = '';
+    team.eventAt = 0;
+    team.lastAt = 0;
+    team.online = true;
+  }
 }
 
 function specDefaultRemote() {
@@ -2420,16 +2721,36 @@ function specComputeLayout(width, height) {
   const barBtnH = Math.max(24, Math.min(34, Math.round(topH * 0.52)));
   const exitBtn = { x: vw - pad - 96, y: (topH - barBtnH) / 2, w: 96, h: barBtnH };
   const modeBtn = { x: exitBtn.x - 100 - 8, y: exitBtn.y, w: 100, h: barBtnH };
+  let result = null;
+  if (SPEC.resultVisible) {
+    const teamCount = SPEC.result && Array.isArray(SPEC.result.teams) ? Math.min(SPEC.result.teams.length, 10) : 0;
+    const cw = Math.min(vw - pad * 2, Math.max(340, Math.min(760, vw * 0.66)));
+    const ch = Math.min(vh - topH - pad * 2, Math.max(340, Math.min(660, 270 + teamCount * 30)));
+    const rx = (vw - cw) / 2;
+    const ry = topH + Math.max(pad, (vh - topH - ch) / 2);
+    const bH = Math.max(30, Math.min(42, ch * 0.075));
+    const bW = Math.max(110, Math.min(170, cw * 0.26));
+    const by = ry + ch - bH - 16;
+    const exit = { x: rx + cw - bW - 18, y: by, w: bW, h: bH };
+    const dismiss = { x: exit.x - bW - 10, y: by, w: bW, h: bH };
+    result = { x: rx, y: ry, w: cw, h: ch, dismiss: dismiss, exit: exit };
+  }
   return {
     W: vw, H: vh, pad: pad, topH: topH, tabH: tabH, infoH: infoH,
     grid: { x: gridX, y: gridY, w: gridW, h: gridH },
-    panes: panes, tabs: tabs, exit: exitBtn, mode: modeBtn,
+    panes: panes, tabs: tabs, exit: exitBtn, mode: modeBtn, result: result,
     info: { x: pad, y: vh - infoH, w: vw - pad * 2, h: infoH - pad },
   };
 }
 function specHitTest(x, y) {
   const L = SPEC.layout || specComputeLayout(W, H);
   if (!L) return null;
+  if (SPEC.resultVisible && L.result) {
+    if (specRectHit(L.result.dismiss, x, y)) return { kind: 'resultDismiss' };
+    if (specRectHit(L.result.exit, x, y)) return { kind: 'resultExit' };
+    if (specRectHit(L.exit, x, y)) return { kind: 'exit' };
+    return null; // jangan tembus ke tab/pane di belakang kartu hasil
+  }
   if (specRectHit(L.exit, x, y)) return { kind: 'exit' };
   if (specRectHit(L.mode, x, y)) return { kind: 'mode' };
   for (const tb of L.tabs) if (specRectHit(tb, x, y)) return { kind: 'tab', teamId: tb.teamId };
@@ -2728,6 +3049,78 @@ function specDrawInfoBar(L, now) {
   }
 }
 
+function specDrawResultOverlay(L) {
+  const r = L.result;
+  if (!r) return;
+  const result = SPEC.result || {};
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  // Scrim di bawah top bar: tombol KELUAR tetap terlihat/aktif saat kartu hasil tampil.
+  ctx.fillStyle = 'rgba(2,6,23,0.86)';
+  ctx.fillRect(0, L.topH, W, H - L.topH);
+  specRoundRect(r.x, r.y, r.w, r.h, 18);
+  ctx.fillStyle = '#0d1527';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(251,191,36,0.85)';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  const pad = Math.max(16, Math.min(28, r.w * 0.045));
+  const cx = r.x + r.w / 2;
+  const round = result.round || SPEC.round || 1;
+  const kickerSize = Math.max(9, Math.min(13, r.h * 0.022));
+  const trophySize = Math.max(34, Math.min(58, r.h * 0.095));
+  const titleSize = Math.max(16, Math.min(30, r.h * 0.052));
+  const subSize = Math.max(9, Math.min(13, r.h * 0.023));
+  const rowFont = Math.max(9, Math.min(13, r.h * 0.024));
+
+  let y = r.y + pad + kickerSize * 0.5;
+  specText('GAME OVER · RONDE ' + round, cx, y, kickerSize, 900, '#fbbf24', 'center');
+  y += kickerSize * 1.6 + trophySize * 0.55;
+  specText(result.tied ? '🤝' : '🏆', cx, y, trophySize, 900, '#f8fafc', 'center');
+  y += trophySize * 0.62;
+  const winner = result.winner;
+  let title = 'SELESAI';
+  if (result.tied && Array.isArray(result.winners) && result.winners.length > 1) title = 'SERI!';
+  else if (winner && winner.name) title = String(winner.name) + ' MENANG!';
+  specText(specFitText(title, r.w - pad * 2, titleSize, 900), cx, y, titleSize, 900, '#f8fafc', 'center');
+  y += titleSize * 1.1;
+  const reason = result.reason === 'time' ? 'Waktu habis' : result.reason === 'host' ? 'Diakhiri host' : 'Pertandingan selesai';
+  let sub = reason;
+  if (result.tied && Array.isArray(result.winners)) sub += ' · ' + result.winners.map((t) => t.name).join(' · ') + ' berbagi posisi teratas';
+  else if (winner) sub += ' · ' + (winner.score || 0) + ' pts · ' + ((winner.floor || 0) * 100) + ' m';
+  specText(specFitText(sub, r.w - pad * 2, subSize, 700), cx, y, subSize, 700, '#94a3b8', 'center');
+  y += subSize * 2.1;
+
+  const teams = Array.isArray(result.teams) ? result.teams : [];
+  const buttonsTop = r.dismiss ? r.dismiss.y : r.y + r.h - pad;
+  const avail = Math.max(0, buttonsTop - 10 - y);
+  const maxRows = Math.min(teams.length, Math.max(0, Math.floor(avail / Math.max(20, r.h * 0.048))));
+  const rowH = maxRows > 0 ? Math.min(42, Math.max(20, avail / maxRows)) : 0;
+  for (let i = 0; i < maxRows; i++) {
+    const team = teams[i];
+    const rank = Number(team.rank) || i + 1;
+    const ry = y + i * rowH;
+    const rowW = r.w - pad * 2;
+    specRoundRect(r.x + pad, ry, rowW, Math.max(18, rowH - 4), 8);
+    ctx.fillStyle = i === 0 ? 'rgba(251,191,36,0.14)' : 'rgba(148,163,184,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = i === 0 ? 'rgba(251,191,36,0.35)' : 'rgba(148,163,184,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : rank + '.';
+    specText(medal, r.x + pad + 13, ry + (rowH - 4) / 2, rowFont, 900, '#fbbf24', 'left');
+    const nameMax = rowW - 150;
+    specText(specFitText(team.name || 'TIM', nameMax, rowFont, 800), r.x + pad + 40, ry + (rowH - 4) / 2, rowFont, 800, '#f8fafc', 'left');
+    specText((Number(team.score) || 0) + ' pts · ' + ((Number(team.floor) || 0) * 100) + ' m', r.x + r.w - pad - 12, ry + (rowH - 4) / 2, rowFont, 900, '#7dd3fc', 'right');
+  }
+  if (!teams.length) {
+    specText('Tidak ada tim pada pertandingan ini.', cx, y + rowFont, rowFont, 700, '#64748b', 'center');
+  }
+  const hov = SPEC.hover || {};
+  specDrawButton(r.dismiss, 'LIHAT KAMERA', false, hov.kind === 'resultDismiss');
+  specDrawButton(r.exit, 'KELUAR', false, hov.kind === 'resultExit');
+}
+
 function specRender(t) {
   if (!SPEC.active) return;
   const now = Date.now();
@@ -2774,6 +3167,7 @@ function specRender(t) {
     specText(specFitText(msg, w - 20, size, 800), L.W / 2, y + h / 2, size, 800, '#fecaca', 'center');
   }
   specDrawInfoBar(L, now);
+  if (SPEC.resultVisible) specDrawResultOverlay(L);
 }
 function vsSpecFrame(t) {
   specRender(t);
@@ -2793,12 +3187,20 @@ function vsSpecOnMessage(msg) {
     SPEC.code = msg.code || SPEC.code;
     SPEC.startedAt = msg.startedAt || null;
     SPEC.duration = Number(msg.duration) || 0;
+    SPEC.round = Number(msg.round) || SPEC.round || 0;
     if (msg.room) {
       specSyncRoom(msg.room);
       SPEC.status = msg.room.status || SPEC.status;
     }
     // Jam yang sama dengan pemain: `remaining`/`remainingMs` dari server.
     specSyncDeadline(msg.remaining, SPEC.duration, msg.remainingMs);
+    // Admin membuka Tonton Live setelah pertandingan selesai: tampilkan hasil
+    // ronde terakhir + pemenang, bukan layar lobby kosong.
+    if (msg.lastResult && (!msg.room || msg.room.status !== 'playing')) {
+      specShowResult(msg.lastResult);
+    } else {
+      specHideResult();
+    }
     if (!SPEC.selectedId && SPEC.order.length) SPEC.selectedId = SPEC.order[0];
     return;
   }
@@ -2829,6 +3231,9 @@ function vsSpecOnMessage(msg) {
     return;
   }
   if (type === 'game_start') {
+    specHideResult();
+    specResetRoundTeams();
+    SPEC.round = Number(msg.round) || SPEC.round || 0;
     SPEC.status = 'playing';
     SPEC.startedAt = msg.serverTime || Date.now();
     if (Number(msg.duration)) SPEC.duration = Number(msg.duration);
@@ -2836,8 +3241,33 @@ function vsSpecOnMessage(msg) {
     return;
   }
   if (type === 'game_end') {
-    SPEC.status = 'ended';
     SPEC.deadlineAt = 0;
+    SPEC.status = 'ended';
+    let result = null;
+    if (msg.winner || msg.winners || msg.tied || Array.isArray(msg.teams)) {
+      result = {
+        reason: msg.reason || '',
+        endedAt: msg.endedAt || Date.now(),
+        round: msg.round || SPEC.round || 0,
+        winner: msg.winner || null,
+        tied: !!msg.tied,
+        winners: Array.isArray(msg.winners) ? msg.winners : [],
+        teams: Array.isArray(msg.teams) ? msg.teams : [],
+      };
+    }
+    if (!specShowResult(result)) specHideResult();
+    return;
+  }
+  if (type === 'room_deleted') {
+    SPEC.err = (msg && msg.message) || 'Room dihapus oleh admin';
+    SPEC.connected = false;
+    SPEC.status = 'ended';
+    SPEC.resultVisible = false;
+    SPEC.result = null;
+    SPEC.deadlineAt = 0;
+    SPEC.teams.clear();
+    SPEC.order.length = 0;
+    SPEC.selectedId = null;
     return;
   }
   if (type === 'error') {
@@ -2854,6 +3284,8 @@ function specOnPointerDown(e) {
   const y = (e.clientY || 0) - rect.top;
   const hit = specHitTest(x, y);
   if (!hit) return;
+  if (hit.kind === 'resultDismiss') { SPEC.resultVisible = false; return; }
+  if (hit.kind === 'resultExit') { vsSpecExit(); return; }
   if (hit.kind === 'exit') { vsSpecExit(); return; }
   if (hit.kind === 'mode') { specToggleFocus(); return; }
   if (hit.kind === 'tab') { specSelect(hit.teamId); SPEC.focus = true; return; }
@@ -2979,6 +3411,16 @@ function vsSpecView() {
     connected: SPEC.connected,
     code: SPEC.code,
     status: SPEC.status,
+    round: SPEC.round,
+    resultVisible: SPEC.resultVisible,
+    result: SPEC.result ? {
+      reason: SPEC.result.reason,
+      round: SPEC.result.round,
+      winner: SPEC.result.winner,
+      tied: SPEC.result.tied,
+      winners: SPEC.result.winners,
+      teams: SPEC.result.teams,
+    } : null,
     selectedId: SPEC.selectedId,
     focus: SPEC.focus,
     err: SPEC.err,
@@ -2995,11 +3437,18 @@ function vsSpecView() {
 }
 
 // Hentikan telemetri + jam pertandingan saat permainan berakhir / kembali ke menu.
+// Di mode VS, timer habis tidak boleh membuka modal solo: tampilkan layar hasil
+// (sementara) dan tunggu `game_end` resmi dari server berisi pemenang.
 (function () {
   const _origEndGame = endGame;
   endGame = function () {
     vsStopTelemetry();
     vsStopMatchClock();
+    if (VS.enabled && !SPEC.active) {
+      if (VS.matchOver) return;
+      vsLocalTimeUp();
+      return;
+    }
     return _origEndGame.apply(this, arguments);
   };
   if (typeof window.openMenu === 'function') {

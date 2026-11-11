@@ -179,6 +179,47 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'rematch-game-over',
+    label: 'Game Over + pemenang di spectator, lalu ronde berikutnya di lobby yang sama',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: rematchSetupScript(), wait: 300 },
+      { waitFor: "typeof SPEC !== 'undefined' && SPEC.connected && SPEC.resultVisible && SPEC.result && !!SPEC.result.winner", timeout: 20000 },
+      { wait: 500 },
+      { shot: 'game-over-pemenang' },
+      { eval: "(() => { const c = window.__rematchCheck(); return 'game over ronde ' + c.round + ' · pemenang ' + c.winner + ' · overlay=' + c.resultVisible + ' · pemain iframe: ' + c.playerResultTitle; })()", wait: 300 },
+      { eval: "(() => { window.__hostWs.send(JSON.stringify({ type: 'start_game' })); return true; })()", wait: 400 },
+      { waitFor: "SPEC.round === 2 && SPEC.status === 'playing' && !SPEC.resultVisible", timeout: 8000 },
+      { eval: rematchRound2TelemetryScript(), wait: 1500 },
+      { shot: 'ronde-2-kamera-lagi' },
+      { eval: "(() => { const c = window.__rematchCheck(); return 'ronde ' + c.round + ' · status ' + c.status + ' · overlay=' + c.resultVisible + ' · pemain iframe round ' + c.playerRound; })()", wait: 200 },
+      { wait: 1300 },
+      { shot: 'ronde-2-masih-lobby-sama' },
+    ],
+  },
+  {
+    name: 'admin-rematch-hapus',
+    label: 'Panel admin: hasil + pemenang, MAIN LAGI, akhiri manual, lalu HAPUS ROOM',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: adminRematchSetupScript(), wait: 300 },
+      { waitFor: "(() => { const b = document.getElementById('resultBanner'); return !!b && getComputedStyle(b).display !== 'none'; })()", timeout: 18000 },
+      { wait: 400 },
+      { shot: 'hasil-pemenang' },
+      { eval: adminClickStartRound2Script(), wait: 400 },
+      { waitFor: "(() => { const b = document.getElementById('resultBanner'); return getComputedStyle(b).display === 'none'; })()", timeout: 8000 },
+      { eval: adminSendRound2ScoresScript(), wait: 500 },
+      { eval: "document.getElementById('btnEnd').click(); true", wait: 500 },
+      { waitFor: "(() => { const b = document.getElementById('resultBanner'); return !!b && getComputedStyle(b).display !== 'none'; })()", timeout: 8000 },
+      { shot: 'selesai-lewat-tombol-akhiri' },
+      { eval: "(() => { const c = window.__adminCheck(); return c; })()", wait: 200 },
+      { eval: "document.getElementById('btnDelete').click(); true", wait: 500 },
+      { waitFor: "(() => { const t = document.getElementById('roomCard'); return !t || getComputedStyle(t).display === 'none'; })()", timeout: 8000 },
+      { shot: 'room-dihapus' },
+      { eval: "(() => { const c = window.__adminCheck(); return 'roomCode=' + c.roomCode + ' · roomCard=' + c.roomCard + ' · status=' + c.badge; })()", wait: 200 },
+    ],
+  },
+  {
     name: 'admin-tonton-live',
     label: 'Panel admin: tombol Tonton Live membuka overlay iframe 4 kamera (end-to-end)',
     viewport: { width: 1440, height: 900 },
@@ -481,6 +522,121 @@ function clockSyncSetupScript() {
 
 // End-to-end dari panel admin: buat room lewat tombol admin, 4 socket tim join
 // + kirim telemetri, mulai mabar, lalu klik "Tonton Live" dan tunggu iframe.
+// End-to-end ronde berulang: satu lobby, satu pemain asli (iframe) + satu tim
+// robot, match pendek (5 dtk) berakhir sendiri → spectator menampilkan GAME OVER
+// + pemenang; host lalu memulai ronde kedua di lobby yang sama.
+function rematchSetupScript() {
+  return `(async () => {
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const host = await openWs();
+    // Match pendek supaya akhir otomatis server cepat tercapai saat capture.
+    host.send(JSON.stringify({ type: 'create_room', adminPassword: pass, materi: 'all', duration: 5 }));
+    const created = await waitMsg(host, 'room_created');
+    const code = created.code;
+
+    const frame = document.createElement('iframe');
+    frame.id = 'playerFrame';
+    frame.style.cssText = 'position:fixed;left:8px;bottom:8px;width:520px;height:330px;z-index:5;border:2px solid #22c55e;border-radius:10px;opacity:0.98;box-shadow:0 10px 30px rgba(0,0,0,.5)';
+    frame.src = '/game.html?code=' + encodeURIComponent(code) + '&team=UJI%20RONDE';
+    document.body.appendChild(frame);
+    await new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        let joined = false;
+        try {
+          const doc = frame.contentDocument;
+          const lobby = doc && doc.getElementById('vs-join-lobby');
+          joined = !!(lobby && getComputedStyle(lobby).display !== 'none');
+        } catch (e) {}
+        if (joined) return resolve(true);
+        if (Date.now() - t0 > 12000) return reject(new Error('iframe pemain tidak join lobby'));
+        setTimeout(tick, 120);
+      };
+      tick();
+    });
+
+    const robot = await openWs();
+    robot.send(JSON.stringify({ type: 'join_room', code: code, teamName: 'TIM ROBOT' }));
+    await waitMsg(robot, 'joined');
+    await new Promise((r) => setTimeout(r, 250));
+
+    host.send(JSON.stringify({ type: 'start_game' }));
+    await new Promise((r) => setTimeout(r, 500));
+    // Skor robot lebih tinggi supaya pemenangnya jelas di layar Game Over.
+    robot.send(JSON.stringify({ type: 'score_update', score: 900, floor: 6, streak: 2 }));
+    robot.send(JSON.stringify({ type: 'player_state', s: {
+      f: 6, sc: 900, stk: 2, cx: 0, cy: -1260, sx: 0, sy: -1308,
+      ss: 'idle', se: 'happy', sr: 0, sk: 0, kx: 1, ky: 1,
+      b: [0, -1260],
+      l: { x: -230, y: -1470, t: 'under', ok: 1, st: 'n', br: 0, fy: 0 },
+      r: { x: 230, y: -1470, t: 'behind', ok: 0, st: 'n', br: 0, fy: 0 },
+      tr: [], q: { t: 'Round 1 · robot memimpin', e: '🤖' }
+    } }));
+
+    window.__hostWs = host;
+    window.__robotWs = robot;
+    window.__roomCode = code;
+    window.__rematchCheck = function () {
+      let player = {};
+      try {
+        const doc = document.getElementById('playerFrame').contentDocument;
+        const w = document.getElementById('playerFrame').contentWindow;
+        const title = doc && doc.getElementById('vs-result-title');
+        const overlay = doc && doc.getElementById('vs-result');
+        player = {
+          playerRound: w && w.VS ? w.VS.round : null,
+          playerGameRunning: w ? !!w.gameRunning : null,
+          playerResultTitle: title ? String(title.textContent || '') : '',
+          playerResultVisible: !!(overlay && overlay.style.display === 'flex'),
+        };
+      } catch (e) {}
+      return Object.assign({
+        round: SPEC.round,
+        status: SPEC.status,
+        resultVisible: SPEC.resultVisible,
+        winner: SPEC.result && SPEC.result.winner ? SPEC.result.winner.name : null,
+        tied: SPEC.result ? !!SPEC.result.tied : null,
+      }, player);
+    };
+    window.vsSpecStart(code, pass);
+    return code;
+  })()`;
+}
+
+// Ronde 2: kirim telemetri robot lagi supaya pane kameranya terisi.
+function rematchRound2TelemetryScript() {
+  return `(() => {
+    if (window.__robotTimer) clearInterval(window.__robotTimer);
+    window.__robotTimer = setInterval(function () {
+      try {
+        window.__robotWs.send(JSON.stringify({ type: 'player_state', s: {
+          f: 3, sc: 360, stk: 1, cx: 0, cy: -630, sx: 0, sy: -678,
+          ss: 'idle', se: 'happy', sr: 0, sk: 0, kx: 1, ky: 1,
+          b: [0, -630],
+          l: { x: -230, y: -840, t: 'is', ok: 1, st: 'n', br: 0, fy: 0 },
+          r: { x: 230, y: -840, t: 'are', ok: 0, st: 'n', br: 0, fy: 0 },
+          tr: [], q: { t: 'Round 2 · lobby yang sama', e: '🔁' }
+        } }));
+      } catch (e) {}
+    }, 125);
+    return true;
+  })()`;
+}
+
 function adminLiveSetupScript() {
   return `(async () => {
     const $ = (id) => document.getElementById(id);
@@ -547,7 +703,86 @@ function adminLiveSetupScript() {
   })()`;
 }
 
+function adminRematchSetupScript() {
+  return `(async () => {
+    const $ = (id) => document.getElementById(id);
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const waitFor = (fn, timeout) => new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        let ok = false; try { ok = fn(); } catch (e) {}
+        if (ok) return resolve(true);
+        if (Date.now() - t0 > timeout) return reject(new Error('timeout di panel admin'));
+        setTimeout(tick, 80);
+      };
+      tick();
+    });
 
+    $('adminPass').value = pass;
+    $('btnCreate').click();
+    await waitFor(() => {
+      const code = String($('codeEl').textContent || '').trim();
+      return code.indexOf('—') < 0 && getComputedStyle($('roomCard')).display !== 'none';
+    }, 8000);
+    const code = String($('codeEl').textContent || '').replace(/[^A-Z0-9]/g, '').slice(0, 6);
+
+    const teams = [];
+    for (const name of ['ALPHA', 'BETA']) {
+      const ws = await openWs();
+      ws.send(JSON.stringify({ type: 'join_room', code: code, teamName: name }));
+      await waitMsg(ws, 'joined');
+      teams.push(ws);
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    $('btnStart').click();
+    await new Promise((r) => setTimeout(r, 500));
+    teams[0].send(JSON.stringify({ type: 'score_update', score: 700, floor: 5, streak: 2 }));
+    teams[1].send(JSON.stringify({ type: 'score_update', score: 300, floor: 2, streak: 0 }));
+    await new Promise((r) => setTimeout(r, 300));
+    $('btnEnd').click();
+
+    window.__adminTeams = teams;
+    window.__adminCheck = function () {
+      return {
+        code: String($('codeEl').textContent || ''),
+        badge: String($('statusBadge').textContent || ''),
+        banner: $('resultBanner') ? getComputedStyle($('resultBanner')).display : '',
+        who: String($('resultWho').textContent || ''),
+        btnStart: String($('btnStart').textContent || ''),
+        roomCard: $('roomCard') ? getComputedStyle($('roomCard')).display : '',
+      };
+    };
+    return code;
+  })()`;
+}
+
+function adminClickStartRound2Script() {
+  return `(() => { document.getElementById('btnStart').click(); return true; })()`;
+}
+
+function adminSendRound2ScoresScript() {
+  return `(() => {
+    const teams = window.__adminTeams || [];
+    if (!teams.length) return false;
+    teams[0].send(JSON.stringify({ type: 'score_update', score: 120, floor: 1, streak: 1 }));
+    teams[1].send(JSON.stringify({ type: 'score_update', score: 80, floor: 1, streak: 0 }));
+    return true;
+  })()`;
+}
 
 const DEFAULTS = {
   url: DEFAULT_URL,

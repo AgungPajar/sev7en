@@ -1,8 +1,8 @@
 # 06 · Mekanik & Skor
 
 Dokumen ini merangkum aturan permainan yang berlaku di mode solo maupun mabar.
-Semua perhitungan berjalan di browser; server mabar hanya menyimpan dan
-mengurutkan skor yang dikirim.
+Semua perhitungan skor berjalan di browser; server mabar menyimpan, mengurutkan,
+dan menghitung pemenang resmi di akhir ronde dari skor tiap tim.
 
 > Catatan: konversi tampilan game dari Canvas 2D ke renderer 3D **tidak mengubah
 > satu pun** angka, rumus, timing, atau aturan di dokumen ini. Kedalaman visual
@@ -128,7 +128,7 @@ dokumen ini).
 | Skor | Akumulasi poin |
 | Ketinggian | `floorLevel × 100` + `m` |
 | Badge zona | Threshold 4 / 8 / 12 |
-| Timer | `mm:ss` atau `♾️` |
+| Timer | `mm:ss` atau `♾️` (di mabar mengikuti `remaining`/`remainingMs` dari server) |
 | Banner | Nomor tangga, emoji, teks soal |
 
 ---
@@ -142,6 +142,8 @@ dokumen ini).
   - Menolak update dari socket yang tidak terikat tim.
   - Meng-clamp `score` dan `floor` minimal 0 (streak tidak di-clamp).
   - Menyimpan nilai terakhir dan menyiarkan `leaderboard` terurut menurun.
+  - Saat ronde berakhir (timer server atau tombol host), nilai terakhir dipakai
+    untuk menghitung pemenang resmi dan klasemen (`game_end`).
 - Tim yang disconnect lalu reconnect tanpa `rejoin` tidak akan lagi dianggap
   terikat tim, sehingga update-nya diabaikan.
 
@@ -167,9 +169,11 @@ Ini murni perbedaan label tampilan; perhitungan skor tidak terpengaruh.
 1. Jawaban benar = naik 1 tangga + 100–200 poin.
 2. Jawaban salah = tidak turun tangga, tetapi kehilangan streak dan waktu.
 3. Streak maksimal memberi bonus +100.
-4. Waktu habis = permainan selesai; tidak ada kondisi menang absolut.
+4. Waktu habis = permainan selesai; di solo tidak ada kondisi menang absolut.
 5. Mabar memakai soal dan durasi yang sama, tetapi progres tiap tim independen.
-6. Server tidak menghitung pemenang; pemenang ditentukan dari leaderboard.
+6. Di mabar, server menghitung **pemenang resmi per ronde** dari skor terakhir
+   (skor tertinggi → `floor` → nama) dan mengirimnya lewat `game_end`; ronde
+   berikutnya dimulai di lobby yang sama lewat **MAIN LAGI**.
 
 Kembali ke [05 · Menambah Soal](05-menambah-soal.md) atau lanjut ke
 [07 · Deploy VPS](07-deploy-vps.md).

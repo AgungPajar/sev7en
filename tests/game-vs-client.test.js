@@ -1421,6 +1421,265 @@ describe('VS client — spectator panes keep the player state intact', () => {
   });
 });
 
+describe('VS client — game over & lobby yang bisa dipakai ulang', () => {
+  const result = (over = {}) => ({
+    reason: 'time', endedAt: 1700000000000, round: 2,
+    winner: { id: 't2', name: 'Tim Beta', score: 900, floor: 7, streak: 3, rank: 1 },
+    tied: false,
+    winners: [{ id: 't2', name: 'Tim Beta', score: 900, floor: 7, streak: 3, rank: 1 }],
+    teams: [
+      { id: 't2', name: 'Tim Beta', score: 900, floor: 7, streak: 3, rank: 1 },
+      { id: 't1', name: 'Tim Alpha', score: 400, floor: 3, streak: 1, rank: 2 },
+    ],
+    ...over,
+  });
+
+  it('shows the server winner and final standings on game_end', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    VS(page).teamName = 'Tim Alpha';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, remaining: 120, round: 2 });
+    ws.receive({ type: 'game_end', ...result() });
+
+    assert.equal(VS(page).matchOver, true);
+    assert.equal(page.get('gameRunning'), false);
+    assert.equal(page.el('vs-result').style.display, 'flex');
+    assert.match(page.el('vs-result-kicker').textContent, /GAME OVER · RONDE 2/);
+    assert.equal(page.el('vs-result-title').textContent, 'Tim Beta MENANG!');
+    assert.match(page.el('vs-result-list').innerHTML, /Tim Beta/);
+    assert.match(page.el('vs-result-list').innerHTML, /Tim Alpha \(kamu\)/);
+    assert.match(page.el('vs-result-list').innerHTML, /900 pts · 700 m/);
+    assert.notEqual(page.el('modal-title').textContent, '🎉 WAKTU HABIS!', 'modal solo tidak boleh dipakai di VS');
+    assert.equal(VS(page).lastResult.winner.name, 'Tim Beta');
+  });
+
+  it('shows the last result after a socket rejoin during game over', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    VS(page).code = 'ABC123';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, remaining: 120, round: 1 });
+    ws.receive({
+      type: 'rejoined',
+      room: room([team('t1', 'Tim Alpha')], { status: 'lobby' }),
+      round: 1,
+      lastResult: result(),
+    });
+    assert.equal(page.el('vs-result').style.display, 'flex');
+    assert.equal(page.el('vs-result-title').textContent, 'Tim Beta MENANG!');
+    assert.equal(VS(page).matchOver, true);
+  });
+
+  it('falls back to SELESAI for an old server that sends game_end without a result', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 60, remaining: 60, round: 1 });
+    ws.receive({ type: 'game_end' });
+    assert.equal(page.el('vs-result').style.display, 'flex');
+    assert.equal(page.el('vs-result-title').textContent, 'SELESAI');
+    assert.equal(page.el('vs-result-kicker').textContent, 'GAME OVER · RONDE 1');
+  });
+
+  it('shows SERI when the top teams tie', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, remaining: 120, round: 1 });
+    const tied = result({
+      winner: null, tied: true,
+      winners: [
+        { id: 't1', name: 'Tim Alpha', score: 500, floor: 5, streak: 0, rank: 1 },
+        { id: 't2', name: 'Tim Beta', score: 500, floor: 5, streak: 0, rank: 1 },
+      ],
+      teams: [
+        { id: 't1', name: 'Tim Alpha', score: 500, floor: 5, streak: 0, rank: 1 },
+        { id: 't2', name: 'Tim Beta', score: 500, floor: 5, streak: 0, rank: 1 },
+      ],
+    });
+    ws.receive({ type: 'game_end', ...tied });
+    assert.equal(page.el('vs-result-title').textContent, 'SERI!');
+    assert.match(page.el('vs-result-champion').textContent, /Tim Alpha/);
+    assert.match(page.el('vs-result-champion').textContent, /Tim Beta/);
+  });
+
+  it('hides the result and starts the next round on a new game_start', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, remaining: 120, round: 1 });
+    ws.receive({ type: 'game_end', ...result() });
+    assert.equal(page.el('vs-result').style.display, 'flex');
+
+    ws.receive({ type: 'game_start', materi: 'all', duration: 120, remaining: 120, round: 2 });
+    assert.equal(page.el('vs-result').style.display, 'none');
+    assert.equal(VS(page).matchOver, false);
+    assert.equal(VS(page).round, 2);
+    assert.equal(page.get('gameRunning'), true);
+  });
+
+  it('sends the final score and shows a waiting screen when the local clock hits zero', () => {
+    const page = load();
+    VS(page).teamId = 't1';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 5, remaining: 5, round: 3 });
+    page.eval('score = 250; floorLevel = 2; streak = 1; updateHUD()');
+    page.advance(5000);
+
+    assert.equal(page.get('gameRunning'), false);
+    assert.equal(VS(page).matchOver, true);
+    assert.equal(page.el('vs-result').style.display, 'flex');
+    assert.match(page.el('vs-result-title').textContent, /WAKTU HABIS/);
+    const finish = ws.sent.map((raw) => JSON.parse(raw)).find((m) => m.type === 'finish');
+    assert.ok(finish, 'client harus mengirim skor akhir ke server');
+    assert.equal(finish.score, 250);
+    assert.equal(finish.floor, 2);
+    assert.equal(finish.streak, 1);
+
+    // Hasil resmi dari server menggantikan layar "menunggu hasil".
+    ws.receive({ type: 'game_end', ...result({ round: 3 }) });
+    assert.equal(page.el('vs-result-title').textContent, 'Tim Beta MENANG!');
+  });
+
+  it('returns to the waiting lobby from the result screen', () => {
+    const page = load({ hash: '#join' });
+    VS(page).code = 'ABC123';
+    VS(page).teamId = 't1';
+    VS(page).teamName = 'Tim Alpha';
+    VS(page).room = room([team('t1', 'Tim Alpha'), team('t2', 'Tim Beta')]);
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 60, remaining: 60, round: 1 });
+    ws.receive({ type: 'game_end', ...result() });
+
+    page.call('vsBackToLobby');
+    assert.equal(page.el('vs-result').style.display, 'none');
+    assert.equal(page.el('vs-modal').style.display, 'flex');
+    assert.equal(page.el('modal').style.display, 'none');
+    assert.match(page.el('vs-join-status').textContent, /menunggu host memulai ronde berikutnya/);
+    assert.match(page.el('vs-lobby-guest').innerHTML, /Tim Alpha \(kamu\)/);
+  });
+
+  it('clears VS state and shows ROOM DIHAPUS when the host deletes the lobby', () => {
+    const page = load({ hash: '#join' });
+    VS(page).code = 'ABC123';
+    VS(page).teamId = 't1';
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 60, remaining: 60, round: 1 });
+    ws.receive({ type: 'room_deleted', code: 'ABC123', message: 'Room dihapus oleh admin' });
+
+    assert.equal(VS(page).code, null);
+    assert.equal(VS(page).teamId, null);
+    assert.equal(VS(page).enabled, false);
+    assert.equal(page.get('gameRunning'), false);
+    assert.equal(page.el('modal').style.display, 'flex');
+    assert.equal(page.el('modal-title').textContent, 'ROOM DIHAPUS');
+    assert.match(page.el('modal-desc').textContent, /ABC123/);
+    assert.equal(page.el('vs-result').style.display, 'none');
+  });
+});
+
+describe('VS client — spectator game over', () => {
+  const specResult = () => ({
+    reason: 'time', endedAt: 1700000000000, round: 2,
+    winner: { id: 't2', name: 'Tim Beta', score: 800, floor: 6, streak: 2, rank: 1 },
+    tied: false,
+    winners: [{ id: 't2', name: 'Tim Beta', score: 800, floor: 6, streak: 2, rank: 1 }],
+    teams: [
+      { id: 't2', name: 'Tim Beta', score: 800, floor: 6, streak: 2, rank: 1 },
+      { id: 't1', name: 'Tim Alpha', score: 300, floor: 2, streak: 0, rank: 2 },
+    ],
+  });
+
+  it('stores the result on game_end and draws GAME OVER with the winner', () => {
+    const { page, ws } = startedSpectator(2);
+    ws.receive({ type: 'game_end', ...specResult() });
+
+    assert.equal(SPEC(page).status, 'ended');
+    assert.equal(SPEC(page).resultVisible, true);
+    assert.equal(SPEC(page).result.winner.name, 'Tim Beta');
+    assert.equal(page.call('specStatusText', page.clock.now), 'SELESAI');
+    page.eval('SPEC.layout = specComputeLayout(W, H)');
+    const L = plain(page.get('SPEC.layout'));
+    assert.ok(L.result && L.result.dismiss && L.result.exit, 'kartu hasil punya tombol dismiss + keluar');
+
+    page.resetCtxCalls();
+    page.call('vsSpecRenderNow', 2000);
+    const texts = page.ctxLog().texts.map((t) => t.text);
+    assert.ok(texts.some((t) => t.includes('GAME OVER')), 'layar harus menulis GAME OVER');
+    assert.ok(texts.some((t) => t.includes('Tim Beta')), 'layar harus menulis nama pemenang');
+    assert.ok(texts.some((t) => t.includes('Tim Alpha')), 'layar harus menampilkan klasemen');
+  });
+
+  it('lets the admin dismiss the result to look at the cameras again', () => {
+    const { page, ws } = startedSpectator(2);
+    ws.receive({ type: 'game_end', ...specResult() });
+    page.eval('SPEC.layout = specComputeLayout(W, H)');
+    const L = plain(page.get('SPEC.layout'));
+    page.fire('gameCanvas', 'pointerdown', {
+      clientX: L.result.dismiss.x + 10,
+      clientY: L.result.dismiss.y + 10,
+    });
+    assert.equal(SPEC(page).resultVisible, false);
+    assert.equal(SPEC(page).result.winner.name, 'Tim Beta', 'hasil tetap disimpan setelah kartu ditutup');
+  });
+
+  it('shows the last result when the admin opens the spectator after the match', () => {
+    const page = spectatorPage();
+    const ws = connectSpectator(page);
+    page.call('vsSpecOnMessage', {
+      type: 'spectate_ok', code: 'ABC123', round: 2,
+      room: { code: 'ABC123', status: 'lobby', teams: specResult().teams },
+      startedAt: null, duration: 180,
+      lastResult: specResult(),
+    });
+    assert.equal(SPEC(page).resultVisible, true);
+    assert.equal(SPEC(page).result.winner.name, 'Tim Beta');
+    assert.equal(SPEC(page).round, 2);
+  });
+
+  it('clears the result and resets snapshots on the next round', () => {
+    const { page, ws } = startedSpectator(2);
+    page.call('vsSpecOnMessage', { type: 'player_state', teamId: 't1', s: playerSnapshot() });
+    assert.ok(SPEC(page).teams.get('t1').snap);
+    ws.receive({ type: 'game_end', ...specResult() });
+    assert.equal(SPEC(page).resultVisible, true);
+
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, remaining: 180, round: 3 });
+    assert.equal(SPEC(page).resultVisible, false);
+    assert.equal(SPEC(page).round, 3);
+    assert.equal(SPEC(page).status, 'playing');
+    assert.equal(SPEC(page).teams.get('t1').snap, null, 'frame ronde lama tidak boleh tampil di ronde baru');
+    assert.equal(page.call('specStatusText', page.clock.now), 'BERMAIN 03:00');
+  });
+
+  it('shows the room-deleted message and clears the camera grid', () => {
+    const { page, ws } = startedSpectator(2);
+    ws.receive({ type: 'room_deleted', code: 'ABC123', message: 'Room dihapus oleh admin' });
+    assert.equal(SPEC(page).err, 'Room dihapus oleh admin');
+    assert.equal(SPEC(page).connected, false);
+    assert.equal(SPEC(page).teams.size, 0);
+    assert.equal(SPEC(page).order.length, 0);
+    assert.equal(page.call('specStatusText', page.clock.now), 'SELESAI');
+  });
+});
+
 describe('VS client — match clock sync (pemain vs admin spectator)', () => {
   const timerText = (page) => page.el('timer-val').textContent;
 

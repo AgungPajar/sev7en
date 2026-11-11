@@ -152,6 +152,7 @@ export function createBunServer(options = {}) {
 
   function stop() {
     clearInterval(cleanupTimer);
+    manager.dispose();
     try { server.stop(true); } catch {}
   }
 

@@ -4,11 +4,11 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 
 | File produksi | Yang diuji |
 |---|---|
-| `game.html` (inline script) | Bank soal, shuffle, spawn tangga, scoring, streak, jump/fall, animasi, HUD, audio, kontrol, VS client, renderer 3D |
+| `game.html` (inline script) | Bank soal, shuffle, spawn tangga, scoring, streak, jump/fall, animasi, HUD, audio, kontrol, VS client (termasuk hasil resmi, ronde berulang, hapus room, spectator GAME OVER), renderer 3D |
 | `star_pou_sky_climber.html` (inline script) | Sama seperti core `game.html` (kedua file memakai logika + renderer identik) |
 | `index.html` (inline script) | Dialog join: validasi kode/nama, prefill `?code=`, redirect ke game |
 | `star_pou_vs.html` | Struktur situs: duplikat harus identik dengan `game.html` |
-| `vs-server/server.js` | Protokol WebSocket: create/join/rejoin/start/score/finish/end, validasi, broadcast, cleanup, health |
+| `vs-server/room-manager.js` (via adapter `server.js`) | Protokol WebSocket: create/join/rejoin/start/score/finish/end/delete_room, hasil pertandingan & klasemen, ronde berulang, hapus room, validasi, broadcast, cleanup, health |
 
 ## Cara menjalankan
 
@@ -20,8 +20,8 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 # vs-server/server.bun.test.js milik `bun test`).
 node --test --test-isolation=none \
   tests/game-core.test.js tests/game-3d.test.js tests/game-vs-client.test.js \
-  tests/site-structure.test.js tests/landing.test.js        # 361 test
-node --test --test-isolation=none tests/vs-server.test.js    # 68 test (butuh `ws`)
+  tests/site-structure.test.js tests/landing.test.js        # 374 test (374 lulus)
+node --test --test-isolation=none tests/vs-server.test.js    # 83 test (82 lulus, 1 gagal pre-existing; butuh `ws`)
 ```
 
 Tidak perlu install dependency tambahan — memakai **Node.js built-in test runner**
@@ -36,16 +36,19 @@ tests/
 │   └── game-page.js       # sandbox DOM/canvas/audio/timer/WebSocket untuk menjalankan HTML asli
 ├── game-core.test.js      # 166 test core game (dijalankan untuk kedua file HTML)
 ├── game-3d.test.js        # 82 test kontrak renderer 3D (dijalankan untuk kedua file HTML)
-├── game-vs-client.test.js # 97 test client multiplayer + spectator/telemetri + jam match
+├── game-vs-client.test.js # 110 test client multiplayer + spectator/telemetri + jam match + hasil/pemenang + ronde berulang + delete_room
 ├── landing.test.js        # 8 test dialog join di index.html
 ├── site-structure.test.js # 8 test struktur markup & sinkronisasi build
-├── vs-server.test.js      # 68 test server WebSocket (unit + integrasi live + spectator + clock)
+├── vs-server.test.js      # 83 test server WebSocket (unit + integrasi live + spectator + clock + hasil pertandingan + ronde + delete_room)
 └── README.md
 ```
 
-Total Node: **429 test** — 428 lulus, 1 gagal pre-existing di `vs-server.test.js`
-("supports rejoining a team after a disconnect", di luar scope renderer 3D; sengaja
-tidak diubah). Seluruh 361 test game/renderer/struktur/landing hijau.
+Total Node: **457 test** — **456 lulus**, **1 gagal pre-existing** di
+`vs-server.test.js` ("supports rejoining a team after a disconnect", yang mengakses
+`serverTeam.ws._teamId` internal; sengaja tidak diubah). Rinciannya: **374 test**
+di 5 suite klien (game/renderer/struktur/landing, semuanya lulus; dari jumlah itu
+`game-vs-client.test.js` menyumbang **110 test**) dan **83 test** di suite server
+(**82 lulus, 1 pre-existing**).
 Tambahan `bun test vs-server/server.bun.test.js`: **21 test**, semuanya lulus.
 
 ## Pendekatan
@@ -82,10 +85,14 @@ for (const file of GAME_FILES) {
 
 ### 2. Server — importable + tetap bisa dijalankan langsung
 
-`vs-server/server.js` di-refactor minimal agar bisa di-`import` oleh test:
+Logika room/protokol dipisah ke `vs-server/room-manager.js` (dipakai adapter Node
+`vs-server/server.js` dan Bun `vs-server/server.bun.js`). Lapisan server tetap bisa
+di-`import` oleh test:
 
 - `createVsServer(options)` mengembalikan `{ server, wss, rooms, listen, close, cleanupNow, config }`.
-- Helper murni diekspor: `genCode`, `roomPublic`, `broadcast`, `cleanupRooms`.
+- Helper murni diekspor dari `room-manager.js`: `genCode`, `roomPublic`, `publicTeam`,
+  `rankTeams`, `matchResult`, `broadcast`, `cleanupRooms`, `remainingSeconds`,
+  `remainingMs`, `sanitizePlayerState`, `MATCH_GRACE_MS`.
 - Perilaku runtime tidak berubah: `node server.js` tetap listen di port `3001` (`/ws`)
   dengan `ADMIN_PASSWORD` dan `MAX_TEAMS` yang sama.
 
@@ -106,15 +113,33 @@ memakai WebSocket client bawaan Node, sehingga protokol end-to-end benar-benar d
 - **Kontrol** — keyboard (`ArrowLeft/a/A`, `ArrowRight/d/D`) dan pointer kiri/kanan.
 - **VS client** — URL lokal/produksi, reconnect 2 s, semua tipe pesan server, lobby, leaderboard,
   create/join validation, throttle score 400 ms, auto-join dari `?code=` & `#join`.
+- **Hasil resmi & lobby berulang (client)** — `game_end` menampilkan pemenang atau **SERI**,
+  alasan, dan klasemen ber-`rank`; tombol **KEMBALI KE LOBI**; `game_start` ronde berikutnya
+  menyembunyikan hasil dan menaikkan `round`; timer lokal habis mengirim `finish{score,floor,streak}`
+  lalu menampilkan layar **WAKTU HABIS** sampai hasil resmi datang; `room_deleted` menampilkan
+  modal **ROOM DIHAPUS** dan membersihkan state VS.
+- **Spectator GAME OVER** — `game_end` dan `lastResult` pada `spectate_ok` memunculkan kartu
+  GAME OVER (pemenang/seri, alasan, klasemen); tombol **LIHAT KAMERA** menutup kartu tanpa
+  menghapus snapshot kamera; **KELUAR**/`Esc` keluar; `game_start` mereset overlay dan snapshot.
+- **Hasil pertandingan (server)** — `rankTeams` (skor → floor → nama), `matchResult`
+  (`reason`, `endedAt`, `round`, `winner`, `tied`, `winners[]`, `teams[].rank`), seri
+  (skor & floor sama), dan room tanpa tim.
+- **Ronde berulang (server)** — akhir pertandingan mengembalikan status ke `lobby` (room
+  tidak dihapus), `start_game` menaikkan `round` dan mereset skor/floor/streak/telemetri,
+  `rejoined_host` & `spectate_ok` membawa `round` + `lastResult`.
+- **delete_room** — hanya host; `room_deleted{code,message}` diterima tim, host, dan observer;
+  room hilang dari Map sehingga kode tidak bisa dipakai; non-host dibalas error.
+- **Timer server & grace** — akhir otomatis `duration × 1000 + 1200 ms`, durasi Tanpa Batas
+  tidak auto-end, dan `end_game` di luar status `playing` dibalas `Tidak ada pertandingan yang berjalan`.
 - **Telemetri pemain** — snapshot `vsCollectPlayerState` (field `f/sc/stk/cx/cy/sx/sy/ss/se/sr/sk/kx/ky/b/l/r/tr/q`,
   START rung level 0, soal aktif, berubah setelah naik), `player_state` ~8 Hz hanya saat mabar
   (`vsStartTelemetry`), berhenti lewat `vsStopTelemetry`/`endGame()`/`game_end`.
 - **Spectator admin** — auto-start dari `?code=..&spectate=1` (body `spectate-mode`, `window.__spectator`),
-  ingest `spectate_ok`/`player_state`/`team_offline`/`leaderboard`/`room_update`/`error`,
+  ingest `spectate_ok`/`player_state`/`team_offline`/`leaderboard`/`room_update`/`game_end`/`room_deleted`/`error`,
   layout grid 1/4/10 tim + mode fokus, clamp zoom 0.7–2.4 per tim, hit-test & kontrol
   pointer/wheel/keyboard, `vsSpecExit`, render multi-pane lewat renderer 3D asli tanpa merusak state pemain.
 - **Landing** — dialog join, validasi, prefill kode, redirect ter-encode.
 - **Struktur** — ID wajib ada, tidak ada script eksternal, build solo tanpa VS, `star_pou_vs.html` = `game.html`.
 - **Server** — auth admin, kode 6 karakter tanpa `I/O/0/1`, validasi join (duplikat, penuh,
-  sudah mulai), host-only start/end, clamp score/floor, sorting leaderboard, rejoin,
+  sudah mulai), host-only start/end/delete, clamp score/floor, sorting leaderboard, rejoin,
   disconnect, isolasi room, TTL cleanup, `/health`, pesan rusak/unknown.

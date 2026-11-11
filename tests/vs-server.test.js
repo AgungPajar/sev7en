@@ -12,6 +12,8 @@ import {
   sanitizePlayerState,
   remainingSeconds,
   remainingMs,
+  rankTeams,
+  matchResult,
   CODE_CHARS,
   MAX_TEAMS,
 } from '../vs-server/server.js';
@@ -268,6 +270,68 @@ describe('vs-server — pure helpers', () => {
 // ---------------------------------------------------------------------------
 // Live server integration
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Hasil pertandingan (pemenang, seri, klasemen)
+// ---------------------------------------------------------------------------
+describe('vs-server — hasil pertandingan', () => {
+  const makeRoom = (teams, extra = {}) => ({
+    round: 2,
+    teams: new Map(teams.map((t) => [t.id, t])),
+    ...extra,
+  });
+
+  it('rankTeams orders by score, then floor, then team name', () => {
+    const room = makeRoom([
+      { id: 'c', name: 'C', score: 100, floor: 2, streak: 0 },
+      { id: 'a', name: 'Alpha', score: 100, floor: 3, streak: 1 },
+      { id: 'b', name: 'Beta', score: 100, floor: 3, streak: 2 },
+      { id: 'd', name: 'D', score: 50, floor: 9, streak: 0 },
+    ]);
+    assert.deepEqual(
+      rankTeams(room).map((t) => `${t.name}:${t.score}:${t.floor}`),
+      ['Alpha:100:3', 'Beta:100:3', 'C:100:2', 'D:50:9'],
+    );
+  });
+
+  it('matchResult returns the winner, ranking and reason', () => {
+    const room = makeRoom([
+      { id: 'a', name: 'Alpha', score: 300, floor: 3, streak: 2 },
+      { id: 'b', name: 'Beta', score: 500, floor: 5, streak: 1 },
+    ]);
+    const result = matchResult(room, 'time', 1234);
+    assert.equal(result.reason, 'time');
+    assert.equal(result.round, 2);
+    assert.equal(result.endedAt, 1234);
+    assert.equal(result.tied, false);
+    assert.equal(result.winner.name, 'Beta');
+    assert.equal(result.winner.score, 500);
+    assert.deepEqual(result.winners.map((t) => t.name), ['Beta']);
+    assert.deepEqual(result.teams.map((t) => [t.rank, t.name]), [[1, 'Beta'], [2, 'Alpha']]);
+  });
+
+  it('matchResult marks a tie when score and floor are equal', () => {
+    const room = makeRoom([
+      { id: 'a', name: 'Alpha', score: 400, floor: 4, streak: 0 },
+      { id: 'b', name: 'Beta', score: 400, floor: 4, streak: 3 },
+      { id: 'c', name: 'C', score: 100, floor: 1, streak: 0 },
+    ]);
+    const result = matchResult(room, 'host');
+    assert.equal(result.tied, true);
+    assert.equal(result.winner, null);
+    assert.deepEqual(result.winners.map((t) => t.name), ['Alpha', 'Beta']);
+    assert.deepEqual(result.teams.map((t) => [t.rank, t.name]), [[1, 'Alpha'], [1, 'Beta'], [3, 'C']]);
+    assert.deepEqual(result.winners.map((t) => t.rank), [1, 1]);
+  });
+
+  it('matchResult tolerates an empty room', () => {
+    const result = matchResult(makeRoom([]), 'host', 99);
+    assert.equal(result.winner, null);
+    assert.equal(result.tied, false);
+    assert.deepEqual(result.teams, []);
+    assert.equal(result.round, 2);
+  });
+});
+
 describe('vs-server — match clock', () => {
   const playingRoom = (over = {}) => ({
     status: 'playing',
@@ -513,6 +577,17 @@ describe('vs-server — live server', () => {
     assert.equal((await host.nextType('error')).message, 'Belum ada tim join');
   });
 
+  it('refuses to start a second time while the match is already running', async () => {
+    const { host, code } = await createRoom();
+    await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await host.nextType('game_start');
+    host.send({ type: 'start_game' });
+    assert.equal((await host.nextType('error')).message, 'Pertandingan sedang berjalan');
+    assert.equal(app.rooms.get(code).round, 1, 'ronde yang sedang berjalan tidak ikut direset');
+    assert.equal(app.rooms.get(code).status, 'playing');
+  });
+
   it('broadcasts game_start to teams and host', async () => {
     const { host, code } = await createRoom({ materi: 'continuous_hobby', duration: 45 });
     const { c } = await joinRoom(code, 'Alpha');
@@ -625,13 +700,140 @@ describe('vs-server — live server', () => {
     assert.equal(app.rooms.get(code).status, 'lobby');
   });
 
-  it('broadcasts game_end and marks the room as ended', async () => {
+  it('broadcasts game_end with the winner and returns the room to the lobby', async () => {
+    const { host, code } = await createRoom();
+    const { c: a } = await joinRoom(code, 'Alpha');
+    const { c: b } = await joinRoom(code, 'Beta');
+    host.send({ type: 'start_game' });
+    await a.nextType('game_start');
+    a.send({ type: 'score_update', score: 280, floor: 2, streak: 1 });
+    await a.nextType('leaderboard');
+    b.send({ type: 'score_update', score: 650, floor: 5, streak: 2 });
+    await b.nextType('leaderboard');
+
+    a.clear(); b.clear();
+    host.send({ type: 'end_game' });
+    const end = await b.nextType('game_end');
+    assert.equal(end.reason, 'host');
+    assert.equal(end.tied, false);
+    assert.equal(end.winner.name, 'Beta');
+    assert.equal(end.winner.score, 650);
+    assert.deepEqual(end.teams.map((t) => [t.rank, t.name]), [[1, 'Beta'], [2, 'Alpha']]);
+    await a.nextType('game_end');
+
+    const room = app.rooms.get(code);
+    assert.equal(room.status, 'lobby', 'room kembali ke lobby, bukan terkunci ended');
+    assert.equal(room.lastResult.winner.name, 'Beta');
+    assert.equal(room.round, 1);
+    // room_update sesudahnya memberi tahu semua bahwa lobby sudah bisa dipakai lagi
+    const update = await a.next((m) => m.type === 'room_update' && m.room.status === 'lobby');
+    assert.equal(update.room.teams.length, 2);
+  });
+
+  it('announces a tie when the top teams have identical score and floor', async () => {
+    const { host, code } = await createRoom();
+    const { c: a } = await joinRoom(code, 'Alpha');
+    const { c: b } = await joinRoom(code, 'Beta');
+    host.send({ type: 'start_game' });
+    await a.nextType('game_start');
+    a.send({ type: 'score_update', score: 500, floor: 4, streak: 0 });
+    await a.nextType('leaderboard');
+    b.send({ type: 'score_update', score: 500, floor: 4, streak: 0 });
+    await b.nextType('leaderboard');
+
+    host.send({ type: 'end_game' });
+    const end = await a.nextType('game_end');
+    assert.equal(end.tied, true);
+    assert.equal(end.winner, null);
+    assert.deepEqual(end.winners.map((t) => t.name), ['Alpha', 'Beta']);
+  });
+
+  it('reuses the same lobby for a second round and resets scores', async () => {
+    const { host, code } = await createRoom();
+    const { c: a } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await a.nextType('game_start');
+    a.send({ type: 'score_update', score: 400, floor: 4, streak: 2 });
+    await a.nextType('leaderboard');
+    host.send({ type: 'end_game' });
+    await a.nextType('game_end');
+
+    // Tim baru boleh join selama lobby (setelah match selesai).
+    const { c: late } = await joinRoom(code, 'Late');
+    assert.equal(app.rooms.get(code).teams.size, 2);
+
+    a.clear();
+    host.send({ type: 'start_game' });
+    const second = await a.nextType('game_start');
+    assert.equal(second.round, 2);
+    const room = app.rooms.get(code);
+    assert.equal(room.status, 'playing');
+    assert.equal(room.round, 2);
+    assert.equal(room.lastResult, null);
+    assert.deepEqual([...room.teams.values()].map((t) => t.score), [0, 0], 'skor ronde baru mulai dari 0');
+    assert.equal(room.teams.get(room.teams.keys().next().value).state, null);
+
+    // Ronde kedua benar-benar bisa dimainkan dan skor baru tercatat.
+    late.send({ type: 'score_update', score: 70, floor: 1, streak: 1 });
+    const lb = await late.nextType('leaderboard');
+    assert.equal(lb.teams[0].name, 'Late');
+    assert.equal(lb.teams[0].score, 70);
+  });
+
+  it('ends a timed match automatically at the server clock and announces the winner', async () => {
+    const { host, code } = await createRoom({ duration: 1 });
+    const { c } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await c.nextType('game_start');
+    c.send({ type: 'score_update', score: 123, floor: 1, streak: 1 });
+    await c.nextType('leaderboard');
+
+    const end = await c.nextType('game_end', 6000);
+    assert.equal(end.reason, 'time');
+    assert.equal(end.winner.name, 'Alpha');
+    assert.equal(end.winner.score, 123);
+    assert.equal(app.rooms.get(code).status, 'lobby');
+  });
+
+  // ---- delete_room ------------------------------------------------------
+  it('only lets the host delete the room and notifies teams and spectators', async () => {
     const { host, code } = await createRoom();
     const { c } = await joinRoom(code, 'Alpha');
+    const obs = await spectate(code);
+    await obs.nextType('spectate_ok');
+
+    c.clear();
+    c.send({ type: 'delete_room' });
+    assert.equal((await c.nextType('error')).message, 'Hanya host yang bisa menghapus room');
+    assert.ok(app.rooms.has(code), 'non-host must not delete the room');
+
+    host.send({ type: 'delete_room' });
+    const deleted = await c.nextType('room_deleted');
+    assert.equal(deleted.code, code);
+    assert.equal(deleted.message, 'Room dihapus oleh admin');
+    await obs.nextType('room_deleted');
+    await host.nextType('room_deleted');
+    assert.equal(app.rooms.has(code), false);
+
+    // Kode lama tidak bisa dipakai lagi.
+    const again = await client();
+    again.send({ type: 'join_room', code, teamName: 'Baru' });
+    assert.equal((await again.nextType('error')).message, 'Room tidak ditemukan');
+  });
+
+  it('forgets the host binding so the deleted room cannot be restarted', async () => {
+    const { host, code } = await createRoom();
+    await joinRoom(code, 'Alpha');
+    host.send({ type: 'delete_room' });
+    await host.nextType('room_deleted');
+    host.send({ type: 'start_game' });
+    assert.equal((await host.nextType('error')).message, 'Hanya host yang bisa start');
+  });
+
+  it('cannot end a match that is not running', async () => {
+    const { host } = await createRoom();
     host.send({ type: 'end_game' });
-    await c.nextType('game_end');
-    await host.nextType('game_end');
-    assert.equal(app.rooms.get(code).status, 'ended');
+    assert.equal((await host.nextType('error')).message, 'Tidak ada pertandingan yang berjalan');
   });
 
   // ---- rejoin -----------------------------------------------------------
@@ -656,6 +858,27 @@ describe('vs-server — live server', () => {
     again.send({ type: 'score_update', score: 30, floor: 1, streak: 1 });
     const lb = await again.nextType('leaderboard');
     assert.equal(lb.teams[0].score, 30);
+  });
+
+  it('does not detach the new team socket when the old socket closes after rejoin', async () => {
+    const { host, code } = await createRoom();
+    const { c: first, joined } = await joinRoom(code, 'Alpha');
+    const again = await client();
+    again.send({ type: 'rejoin', code, teamId: joined.teamId });
+    await again.nextType('rejoined');
+    const serverTeam = app.rooms.get(code).teams.get(joined.teamId);
+    assert.equal(serverTeam.ws.readyState, 1);
+
+    first.close();
+    await delay(80);
+    assert.equal(serverTeam.ws.readyState, 1, 'socket baru tidak boleh dilepas oleh close socket lama');
+    assert.ok(serverTeam.conn, 'binding tim tetap ke socket baru');
+
+    host.send({ type: 'start_game' });
+    await again.nextType('game_start');
+    again.send({ type: 'score_update', score: 42, floor: 2, streak: 1 });
+    const lb = await again.nextType('leaderboard');
+    assert.equal(lb.teams[0].score, 42);
   });
 
   it('silently ignores invalid rejoin attempts', async () => {
@@ -921,6 +1144,62 @@ describe('vs-server — live server', () => {
     assert.equal(start.materi, 'food_kitchen');
     assert.equal(start.duration, 60);
     assert.equal(typeof start.serverTime, 'number');
+  });
+
+  it('sends the last result to a spectator joining after the match', async () => {
+    const { host, code } = await createRoom();
+    const { c: team } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await team.nextType('game_start');
+    team.send({ type: 'score_update', score: 350, floor: 3, streak: 1 });
+    await team.nextType('leaderboard');
+    host.send({ type: 'end_game' });
+    await team.nextType('game_end');
+
+    const obs = await spectate(code);
+    const ok = await obs.nextType('spectate_ok');
+    assert.equal(ok.room.status, 'lobby');
+    assert.equal(ok.round, 1);
+    assert.equal(ok.lastResult.winner.name, 'Alpha');
+    assert.equal(ok.lastResult.winner.score, 350);
+    assert.deepEqual(ok.lastResult.teams.map((t) => t.rank), [1]);
+  });
+
+  it('sends the last result to a team reconnecting after the match', async () => {
+    const { host, code } = await createRoom();
+    const { c: team, joined } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await team.nextType('game_start');
+    team.send({ type: 'score_update', score: 250, floor: 2, streak: 0 });
+    await team.nextType('leaderboard');
+    host.send({ type: 'end_game' });
+    await team.nextType('game_end');
+
+    team.close();
+    await delay(60);
+    const again = await client();
+    again.send({ type: 'rejoin', code, teamId: joined.teamId });
+    const rejoined = await again.nextType('rejoined');
+    assert.equal(rejoined.round, 1);
+    assert.equal(rejoined.lastResult.winner.name, 'Alpha');
+    assert.equal(rejoined.lastResult.winner.score, 250);
+    assert.equal(rejoined.room.status, 'lobby');
+  });
+
+  it('sends the last result to a reconnecting host', async () => {
+    const { host, code } = await createRoom();
+    const { c: team } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    await team.nextType('game_start');
+    host.send({ type: 'end_game' });
+    await team.nextType('game_end');
+
+    const again = await client();
+    again.send({ type: 'rejoin_host', code, adminPassword: app.config.adminPassword });
+    const rejoined = await again.nextType('rejoined_host');
+    assert.equal(rejoined.lastResult.tied, false);
+    assert.equal(rejoined.lastResult.round, 1);
+    assert.equal(rejoined.room.status, 'lobby');
   });
 
   it('keeps spectator traffic isolated between rooms', async () => {
