@@ -4,11 +4,19 @@ Game kuis Bahasa Inggris bertema naik tangga awan ke luar angkasa. Pemain menjaw
 soal dengan memilih tangga kiri/kanan; jawaban benar menaikkan bintang satu tingkat,
 jawaban salah membuat awan hancur dan pemain jatuh ke pijakan aman terakhir.
 
-Ada dua mode: **solo** (satu perangkat) dan **mabar/VS** (maksimal 10 tim, satu kode
-room, leaderboard live). Seluruh project berjalan **tanpa database** — state room
-hanya di memori proses server.
+Dunia permainan ditampilkan dalam **3D** memakai renderer software buatan sendiri:
+proyeksi perspektif, painter's algorithm, dan shading toon digambar ke Canvas 2D —
+tanpa WebGL, tanpa three.js, dan tanpa dependency. Tetap satu file HTML mandiri dan
+jalan offline.
 
-- **Stack:** HTML + Canvas 2D (vanilla JS, tanpa build step) + satu server WebSocket.
+Ada dua mode: **solo** (satu perangkat) dan **mabar/VS** (maksimal 10 tim, satu kode
+room, leaderboard live). Panel admin juga punya mode **tonton live** (spectator):
+satu kamera per tim ditampilkan sekaligus, lengkap dengan skor dan status
+online/offline. Seluruh project berjalan **tanpa database** — state room hanya di
+memori proses server.
+
+- **Stack:** HTML + Canvas 2D dengan renderer 3D software buatan sendiri (vanilla JS,
+  tanpa build step) + satu server WebSocket.
 - **Runtime server:** Bun (satu proses: file statis + WebSocket) atau Node (`ws`).
 - **Dependency npm:** 0 untuk runtime Bun. Node hanya butuh paket `ws`.
 
@@ -22,8 +30,13 @@ sev7en/
 ├── game.html                   # Game utama + mode mabar (VS)
 ├── star_pou_vs.html            # Harus identik dengan game.html (dijaga test)
 ├── star_pou_sky_climber.html   # Build solo tanpa blok VS
-├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard
+├── admin/index.html            # Panel admin: buat room, pantau tim & leaderboard, tonton live
 ├── design/                     # Aset/eksperimen desain (disajikan di /design/)
+├── tools/
+│   ├── 3d-engine-spec.md       # Spesifikasi kerja renderer 3D (internal)
+│   ├── capture3d.mjs           # Harness screenshot Edge headless untuk verifikasi visual
+│   ├── sync-solo.mjs           # Bangun ulang build solo + salinan VS dari game.html
+│   └── README.md               # Cara pakai harness screenshot
 ├── vs-server/
 │   ├── server.bun.js           # Adapter Bun: static + WS (/ws, /vs-ws) + /health
 │   ├── server.js               # Adapter Node: WS saja (fallback)
@@ -31,7 +44,7 @@ sev7en/
 │   ├── config.js               # PORT & ADMIN_PASSWORD dari environment
 │   └── server.bun.test.js      # Test integrasi Bun (19 test)
 ├── docs/                       # Dokumentasi rinci (lihat bagian akhir)
-├── tests/                      # Suite lama node:test (WIP)
+├── tests/                      # Unit test Node (node:test)
 ├── Dockerfile / docker-compose.yml
 └── BUN.md / DOCKER.md
 ```
@@ -122,6 +135,7 @@ PORT=3001 ADMIN_PASSWORD=rahasia bun run start
 | Panel admin | `/admin/` | Buat room, lihat tim, leaderboard |
 | Gabung via link | `/game.html?code=ABC123#join` | Dialog join terbuka, kode terisi |
 | Gabung otomatis | `/game.html?code=ABC123&team=NAMA#join` | Kode + nama langsung join |
+| Tonton live (spectator) | `/game.html?code=ABC123&spectate=1` | Butuh password admin; grid kamera semua tim |
 | WebSocket | `/ws` (lokal), `/vs-ws` (nginx) | Protokol JSON |
 | Health check | `/health` | `{"ok":true,"rooms":N}` |
 
@@ -149,14 +163,16 @@ Source server, test, `.git`, dan path traversal → `404`.
 1. Buka `/` → klik **Main Sendiri** → `/game.html`.
 2. Isi nama tim, pilih **materi** (4 topik atau gabungan) dan **durasi**
    (2/3/5 menit atau tanpa batas).
-3. Klik **MULAI NAIK TANGGA**. Bintang mulai dari tanah, dua awan jawaban muncul.
+3. Klik **MULAI NAIK TANGGA**. Kamera 3D menampilkan pulau bumi; bintang mulai dari
+   tanah dan dua awan jawaban muncul di atasnya.
 4. Pilih dengan panah kiri/kanan (atau `A`/`D`, atau klik/tap awan).
 5. Jawaban **benar**: naik satu tangga, `+100` poin, ditambah bonus streak `+20`
    untuk tiap jawaban benar beruntun setelahnya (maksimal `+100`).
-6. Jawaban **salah**: awan hancur, streak kembali `0`, bintang jatuh ke pijakan aman
-   terakhir, lalu soal baru muncul.
+6. Jawaban **salah**: awan hancur, streak kembali `0`, bintang jatuh dan berputar
+   ke pijakan aman terakhir, lalu soal baru muncul.
 7. Ketinggian = `tangga × 100 m`. Zona berubah di tangga 4 (awan), 8 (senja),
-   12 (luar angkasa).
+   12 (luar angkasa); langit 3D bertransisi mengikuti ketinggian kamera, termasuk
+   bintang, bulan, dan planet bercincin di zona paling atas.
 8. Timer habis → modal hasil: total poin, ketinggian, jumlah tangga.
 
 Mode solo tidak menyentuh WebSocket sama sekali.
@@ -179,13 +195,21 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    `game_start{materi, duration, serverTime}` ke **semua** client sekaligus.
 7. Semua client memakai materi + durasi dari host (bukan pilihan lokal), tetapi
    **urutan soal diacak per tim**, jadi tidak ada saling contekan posisi.
-8. Selama bermain, tiap client mengirim `score_update{score, floor, streak}`
-   maksimal tiap **400 ms**. Server menyimpan (nilai diklem ≥ 0) lalu menyiarkan
-   `leaderboard` terurut skor menurun ke host + semua tim.
-9. Timer berjalan **di masing-masing client** (durasi sama, mulai hampir serentak).
-   Saat habis, client menampilkan hasil akhirnya sendiri; status room tetap
-   `playing` di server.
-10. Room hilang otomatis setelah **2 jam** (TTL, dicek tiap 10 menit) atau saat
+8. **Host** bisa menekan **🔴 Tonton Live** di panel admin setelah room dibuat.
+   Panel memasang overlay iframe (tombol **Reload** / **Buka Tab Baru** /
+   **Tutup**) berisi `/game.html?code=<KODE>&spectate=1`; halaman itu menampilkan
+   satu kamera 3D per tim (grid otomatis, tab tim, mode fokus, zoom 70%–240% per
+   pemain) tanpa ikut bermain. Password admin diambil dari `sessionStorage`
+   (`sev7en-admin-pass`).
+9. Selama bermain, tiap client mengirim `score_update{score, floor, streak}`
+   maksimal tiap **400 ms**, sekaligus `player_state` (telemetri kamera) sekitar
+   **8×/detik** yang hanya diteruskan server ke observer admin. Server menyimpan
+   skor (diklem ≥ 0) lalu menyiarkan `leaderboard` terurut skor menurun ke host +
+   semua tim.
+10. Timer berjalan **di masing-masing client** (durasi sama, mulai hampir serentak).
+    Saat habis, client menampilkan hasil akhirnya sendiri; status room tetap
+    `playing` di server.
+11. Room hilang otomatis setelah **2 jam** (TTL, dicek tiap 10 menit) atau saat
     server restart.
 
 > Belum ada tombol "akhiri mabar" di UI. Server sudah mendukung pesan `end_game`
@@ -233,21 +257,61 @@ Semua pesan JSON, satu field `type`.
 | `score_update` | `{score, floor, streak}` → broadcast `leaderboard` |
 | `finish` | Skor akhir tim → broadcast `leaderboard` |
 | `end_game` | Host saja → broadcast `game_end` |
+| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, remaining, remainingMs, observers}` + snapshot telemetri tiap tim |
+| `spectate_leave` | Lepas observer dari room |
+| `player_state` | Tim → `{s}`; server menyimpan snapshot lalu meneruskannya ke observer room itu saja |
 
 | Server → client | Fungsi |
 | --- | --- |
 | `room_created` / `joined` / `rejoined` / `rejoined_host` | Konfirmasi + snapshot room |
 | `room_update` | Daftar tim berubah (join / disconnect) |
-| `game_start` | Mulai bermain: `materi`, `duration`, `serverTime` |
+| `game_start` | Mulai bermain: `materi`, `duration`, `serverTime`, `remaining`/`remainingMs` (sisa waktu dari server; `null` = Tanpa Batas) |
 | `leaderboard` | Tim terurut skor menurun |
 | `game_end` | Sesi selesai |
+| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir (+ `remaining`) |
+| `player_state` | Telemetri tim (`{teamId, s, t}`), relay hanya ke observer |
+| `team_offline` | `{teamId}` — tim putus, pane spectator menandai offline |
 | `error` | `{message}` — mis. `Password admin salah`, `Room penuh (10 tim)` |
+
+`remaining`/`remainingMs` adalah jam pertandingan dari server; client mengubahnya
+menjadi deadline lokal sehingga timer pemain, leaderboard, dan admin spectator
+menunjuk detik yang sama (tidak terpengaruh beda jam perangkat/latensi).
 
 Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitektur-dan-protokol.md).
 
 ---
 
 ## Testing
+
+### Unit test (Node `node:test`)
+
+Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
+
+```bash
+npm test        # 5 file test game/renderer/struktur/landing (361 test), --test-isolation=none
+npm run test:vs-server   # suite server WebSocket Node (68 test, legacy/WIP: 1 gagal pre-existing)
+```
+
+Atau per file:
+
+```bash
+node --test --test-isolation=none tests/game-core.test.js
+node --test --test-isolation=none tests/game-3d.test.js
+node --test --test-isolation=none tests/game-vs-client.test.js
+node --test --test-isolation=none tests/site-structure.test.js
+node --test --test-isolation=none tests/landing.test.js
+node --test --test-isolation=none tests/vs-server.test.js
+```
+
+> Flag `--test-isolation=none` wajib di lingkungan yang membatasi spawn proses;
+> tanpa flag itu `node --test` bisa gagal karena sandbox, bukan karena test.
+
+Test HTML menjalankan script asli dari `game.html` di sandbox DOM/canvas
+(`tests/helpers/game-page.js`), jadi perubahan renderer ikut teruji tanpa GPU.
+Test server menjalankan `vs-server` sungguhan di port acak. Cakupan tiap file ada di
+[tests/README.md](tests/README.md).
+
+### Test integrasi server (Bun)
 
 ```bash
 bun test vs-server/server.bun.test.js     # 19 test: static, health, WS flow, rejoin
@@ -257,11 +321,35 @@ Mencakup: allowlist statis, `/health`, alur room lewat `/ws` dan `/vs-ws`,
 multi-tim saling melihat, create → join → start → score → finish, `rejoin`,
 `rejoin_host`, resume saat game berjalan, dan resolusi URL WS di client.
 
-Suite lama `tests/` (Node `node:test`) masih **WIP** dan butuh `ws` terpasang di
-`vs-server`; lihat [tests/README.md](tests/README.md).
+### Verifikasi visual 3D (screenshot)
 
-> `game.html` dan `star_pou_vs.html` wajib identik. Kalau mengubah satu, salin ke
-> yang lain (ada test struktur yang memeriksa hash-nya).
+Renderer software tidak cukup diuji unit test — pakai harness Edge headless:
+
+```bash
+# terminal 1 — server statis di root project
+python -m http.server 4173
+
+# terminal 2 — ambil screenshot beberapa skenario
+node tools/capture3d.mjs \
+  --url=http://127.0.0.1:4173/game.html \
+  --out=.shots \
+  --scenario=all
+```
+
+Skenario: `menu`, `solo-start`, `play`, `wrong`, `mid`, `space`,
+`climb-history`, `mobile-portrait`, `mobile-landscape`, `fps`. Hasil PNG masuk ke
+`.shots/<timestamp>/` beserta `summary.json`. Skenario `fps` mengukur frame rate
+renderer — pada mesin uji Edge headless tanpa GPU di 1280×800 hasilnya ±55–61 fps
+(angka indikatif). Harness menggagalkan proses bila ada exception/page error;
+`console.error` baru ikut menggagalkan dengan `--strict`. Panduan lengkap:
+[10 · Renderer 3D](docs/10-renderer-3d.md#13-verifikasi-visual-dengan-screenshot)
+dan [tools/README.md](tools/README.md).
+
+> `game.html` adalah sumber kebenaran (`star_pou_vs.html` wajib identik, dan
+> `star_pou_sky_climber.html` adalah build tanpa blok `@vs-only`). Setelah mengubah
+> `game.html`, bangun ulang keduanya dengan `npm run sync:solo`
+> (atau `node tools/sync-solo.mjs`); `--check` hanya memeriksa tanpa menulis.
+> Ada test struktur yang memeriksa hasil build.
 
 ---
 
@@ -276,6 +364,12 @@ Suite lama `tests/` (Node `node:test`) masih **WIP** dan butuh `ws` terpasang di
 | Join ditolak `Room sudah mulai` | Game sudah dimulai | Tunggu room baru dari host |
 | Room hilang sendiri | Restart server / `bun run dev` / TTL 2 jam | Pakai `bun run start`, buat room baru |
 | Port 3001 dipakai | Proses lama masih jalan | Hentikan proses itu atau ganti `PORT` |
+| Pane **Tonton Live** kosong / “menunggu” | Tim belum mulai atau telemetri belum masuk | Tekan **MULAI MABAR**, tunggu tim menjawab soal pertama |
+| Pane spectator **offline** | Socket tim putus atau telemetri berhenti >4 detik | Cek Wi-Fi perangkat tim; data terakhir tetap tampil sampai tim rejoin |
+| **Tonton Live** terus minta password | `sessionStorage` hilang (tab baru/browser ditutup) atau password beda | Buka lewat tombol **Tonton Live**; isi password yang sama dengan saat buat room |
+| Spectator patah-patah / fps rendah | Telemetri 8 Hz + renderer software untuk banyak kamera | Normal (±30 fps); kecilkan jendela, pakai mode fokus, tutup tab lain |
+| Layar game hitam / gambar aneh | Exception di renderer 3D | Buka DevTools (F12), lihat console; panduan [renderer §14](docs/10-renderer-3d.md#14-troubleshooting-renderer) |
+| Render tersendat / fps turun | Renderer software berjalan di CPU; jendela/zoom terlalu besar | Perkecil jendela, tutup tab berat; DPR otomatis dibatasi 2 |
 
 Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md),
 [BUN.md](BUN.md), [DOCKER.md](DOCKER.md).
@@ -285,8 +379,15 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
 ## Batasan yang perlu diketahui
 
 - **Tanpa database**: room, tim, dan skor hanya di memori. Restart = reset.
+- **Renderer software**: dunia 3D dihitung di CPU lalu digambar ke Canvas 2D —
+  tanpa WebGL, tekstur, atau bayangan real-time. DPR dibatasi maksimal 2, dan
+  kualitas/fps mengikuti kemampuan perangkat. Tampilan 3D tidak mengubah gameplay,
+  skor, soal, HUD, maupun protokol VS.
 - **Skor dari client** (client-authoritative, diklem ≥ 0). Cocok untuk kelas /
   kelompok tertutup, bukan kompetisi publik berhadiah.
+- **Spectator live** merender beberapa kamera 3D sekaligus di browser admin,
+  dibatasi ±30 fps; telemetri 8 Hz diinterpolasi. Bukan rekaman: tutup tab admin
+  = tidak ada playback dan riwayat gerakan hilang.
 - **Maksimal 10 tim per room**, join hanya saat `lobby`.
 - **Soal hardcoded** di HTML, belum ada CRUD di panel admin →
   [docs/05-menambah-soal.md](docs/05-menambah-soal.md).
@@ -308,7 +409,8 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
 | [docs/05 · Menambah Soal](docs/05-menambah-soal.md) | Struktur bank soal |
 | [docs/06 · Mekanik & Skor](docs/06-mekanik-dan-skor.md) | Rumus poin, streak, zona |
 | [docs/07 · Deploy VPS](docs/07-deploy-vps.md) | PM2, Nginx, WSS |
-| [docs/08 · Arsitektur & Protokol](docs/08-arsitektur-dan-protokol.md) | Model data, pesan WS |
+| [docs/08 · Arsitektur & Protokol](docs/08-arsitektur-dan-protokol.md) | Model data, pesan WS, rendering klien |
 | [docs/09 · Troubleshooting & FAQ](docs/09-troubleshooting-faq.md) | Error & solusi |
+| [docs/10 · Renderer 3D](docs/10-renderer-3d.md) | Kamera, proyeksi, zona, geometri, performa, screenshot |
 | [BUN.md](BUN.md) | Menjalankan dengan Bun, pm2, nginx |
 | [DOCKER.md](DOCKER.md) | Build image, compose, LAN, healthcheck |

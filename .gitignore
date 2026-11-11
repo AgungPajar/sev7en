@@ -1,0 +1,3 @@
+# Artefak pengembangan lokal (screenshot harness, profil browser, backup)
+.shots/
+*.log

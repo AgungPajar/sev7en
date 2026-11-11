@@ -391,39 +391,89 @@ for (const file of GAME_FILES) {
       });
     });
 
-    describe('world/screen coordinates', () => {
-      it('maps the camera origin to the screen anchor', () => {
+    describe('world/3D projection', () => {
+      it('maps the gameplay plane into 3D world space', () => {
         const page = load();
-        const W = page.get('W');
-        const H = page.get('H');
-        closeTo(page.call('worldToScreenX', 0), W * 0.5);
-        closeTo(page.call('worldToScreenY', 0), H * 0.78);
+        assert.deepEqual(plain(page.call('gameTo3D', 0, 0)), { x: 0, y: 0, z: 0 });
+        assert.deepEqual(plain(page.call('gameTo3D', 125, -210)), { x: 125, y: 210, z: 0 });
+        assert.deepEqual(plain(page.call('gameTo3D', 125, -210, 170)), { x: 125, y: 210, z: 170 });
       });
 
-      it('is linear around the camera position', () => {
+      it('centres the camera aim point on screen', () => {
         const page = load();
+        page.call('updateCameraRig');
         const W = page.get('W');
         const H = page.get('H');
-        page.eval('cam.x = 100; cam.y = -200;');
-        closeTo(page.call('worldToScreenX', 100), W * 0.5);
-        closeTo(page.call('worldToScreenY', -200), H * 0.78);
-        closeTo(page.call('worldToScreenX', 150), W * 0.5 + 50);
-        closeTo(page.call('worldToScreenY', -150), H * 0.78 + 50);
+        const camera = plain(page.get('camera3D'));
+        const aim = page.call('projectPoint', camera.target);
+        assert.ok(aim, 'the aim point must project');
+        closeTo(aim.x, W / 2, 1e-6);
+        closeTo(aim.y, H / 2, 1e-6);
+
+        // The gameplay point right under the aim is also centred.
+        const AU = page.get('STEP_Y') * 0.86;
+        const aimed = page.call('projectGamePoint', page.get('cam.x'), page.get('cam.y') - AU);
+        assert.ok(aimed, 'the aimed gameplay point must project');
+        closeTo(aimed.x, W / 2, 1e-6);
+        closeTo(aimed.y, H / 2, 1e-6);
       });
 
-      it('updates the viewport and STEP_X on resize', () => {
+      it('projects the camera origin below the screen centre (reasonable tolerance)', () => {
         const page = load();
-        assert.equal(page.get('STEP_X'), 230);
+        page.call('updateCameraRig');
+        const W = page.get('W');
+        const H = page.get('H');
+        const origin = page.call('projectGamePoint', page.get('cam.x'), page.get('cam.y'));
+        assert.ok(origin, 'the camera origin must project');
+        closeTo(origin.x, W / 2, 1);
+        assert.ok(origin.y > H / 2, 'the ground under the camera sits below the aim');
+        assert.ok(origin.y < H, 'the ground under the camera stays on screen');
+      });
+
+      it('makes closer objects project larger than far ones', () => {
+        const page = load();
+        page.call('updateCameraRig');
+        const camera = plain(page.get('camera3D'));
+        const far = page.call('projectGamePoint', 0, 0, 0);
+        const near = page.call('projectPoint', { x: 0, y: 0, z: camera.eye.z - 80 });
+        assert.ok(far && near, 'both points must project');
+        assert.ok(near.depth < far.depth, 'the nearer point has a smaller depth');
+        assert.ok(near.scale > far.scale, 'closer objects get a bigger scale');
+      });
+
+      it('returns null for points at/behind the camera', () => {
+        const page = load();
+        page.call('updateCameraRig');
+        const camera = plain(page.get('camera3D'));
+        const behind = {
+          x: camera.eye.x - camera.fwd.x * 100,
+          y: camera.eye.y - camera.fwd.y * 100,
+          z: camera.eye.z - camera.fwd.z * 100,
+        };
+        assert.equal(page.call('projectPoint', behind), null);
+        // Same in gameplay space: anything in front of the eye on the +z side.
+        assert.equal(page.call('projectGamePoint', 0, 0, camera.eye.z + 500), null);
+      });
+
+      it('updates the viewport, STEP_X and the canvas backing store on resize', () => {
+        const page = load();
+        assert.equal(page.get('STEP_X'), 230); // min(230, 1280 * 0.23)
+        assert.equal(page.get('DPR'), 1); // sandbox devicePixelRatio
         page.window.innerWidth = 800;
         page.window.innerHeight = 600;
         page.fireWindow('resize');
         assert.equal(page.get('W'), 800);
         assert.equal(page.get('H'), 600);
         assert.equal(page.get('STEP_X'), 184); // min(230, 800 * 0.23)
-        assert.equal(page.el('gameCanvas').width, 800);
+        assert.equal(page.el('gameCanvas').width, 800); // DPR = 1 in the sandbox
         assert.equal(page.el('gameCanvas').height, 600);
-        closeTo(page.call('worldToScreenX', 0), 400);
-        closeTo(page.call('worldToScreenY', 0), 468);
+
+        page.call('updateCameraRig');
+        const camera = plain(page.get('camera3D'));
+        closeTo(camera.focal, 300 / Math.tan((55 * Math.PI) / 180 / 2), 1e-6);
+        const aim = page.call('projectPoint', camera.target);
+        closeTo(aim.x, 400, 1e-6);
+        closeTo(aim.y, 300, 1e-6);
       });
     });
 
@@ -793,14 +843,18 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('floatingTexts.length'), 0);
       });
 
-      it('renders sky, platforms and the character without throwing', () => {
+      it('renders the 3D sky, platforms and the character without throwing', () => {
         const page = load();
         startGame(page);
+        page.resetCtxCalls();
         page.frame(1000);
         const calls = page.ctxCalls();
-        for (const name of ['save', 'restore', 'fillRect', 'beginPath', 'arc', 'fill', 'stroke', 'fillText', 'roundRect', 'createLinearGradient', 'createRadialGradient']) {
+        for (const name of ['save', 'restore', 'fillRect', 'beginPath', 'fill', 'stroke', 'fillText', 'moveTo', 'lineTo', 'roundRect', 'createLinearGradient', 'arc']) {
           assert.ok((calls[name] || 0) > 0, `expected ctx.${name} to be called`);
         }
+        // 3D geometry: the scene paints filled polygons, not only rectangles/arcs.
+        assert.ok((calls.lineTo || 0) >= 20, 'expected polygon edges from 3D meshes');
+        assert.ok((calls.fill || 0) >= 10, 'expected filled 3D faces');
       });
 
       it('draws space objects at high altitude', () => {

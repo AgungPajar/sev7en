@@ -19,12 +19,154 @@ export function roomPublic(r) {
   };
 }
 
+/**
+ * Sisa waktu pertandingan (detik, dibulatkan ke atas) pada `now`. Server adalah
+ * sumber jam: nilai ini dikirim ke client lewat `remaining` supaya HUD pemain,
+ * leaderboard, dan status spectator admin menghitung deadline yang sama (tidak
+ * terpengaruh beda jam antar perangkat maupun latensi pengiriman pesan).
+ * @returns {number|null} null bila room belum/sudah tidak bermain, atau durasi
+ *   "Tanpa Batas" (>= 9000 detik).
+ */
+export function remainingSeconds(r, now = Date.now()) {
+  if (!r || r.status !== 'playing' || !r.startedAt) return null;
+  const duration = Number(r.duration) || 0;
+  if (!(duration > 0) || duration >= 9000) return null; // Tanpa Batas: tanpa hitungan
+  const endsAt = Number(r.startedAt) + duration * 1000;
+  return Math.max(0, Math.ceil((endsAt - Number(now)) / 1000));
+}
+
+/**
+ * Sisa waktu pertandingan dalam milidetik (null bila tidak ada hitungan).
+ * Dikirim bersama `remaining` (detik) supaya client dapat menghitung deadline
+ * lokal dengan presisi milidetik: HUD pemain dan status spectator admin jatuh
+ * pada detik yang sama, bukan hanya selisih maksimal 1 detik.
+ */
+export function remainingMs(r, now = Date.now()) {
+  if (!r || r.status !== 'playing' || !r.startedAt) return null;
+  const duration = Number(r.duration) || 0;
+  if (!(duration > 0) || duration >= 9000) return null;
+  const endsAt = Number(r.startedAt) + duration * 1000;
+  return Math.max(0, Math.round(endsAt - Number(now)));
+}
+
 export function broadcast(r, msg, except = null) {
   const s = JSON.stringify(msg);
   for (const t of r.teams.values()) {
     if (t.ws && t.ws.readyState === 1 && t !== except) try { t.ws.send(s); } catch {}
   }
   if (r.hostWs && r.hostWs.readyState === 1 && r.hostWs !== except?.ws) try { r.hostWs.send(s); } catch {}
+  // observer/admin spectator mendapat broadcast yang sama dengan tim + host
+  if (r.observers) for (const obs of r.observers) {
+    if (obs.ws && obs.ws.readyState === 1 && obs !== except && obs.ws !== except?.ws) try { obs.ws.send(s); } catch {}
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Telemetri pemain (relay ke observer/admin spectator)
+// Snapshot `s` memakai field pendek; hanya field dikenal yang disalin.
+// ---------------------------------------------------------------------------
+
+const SIDE_STATUSES = new Set(['n', 'c', 'w']);
+const NUM_LIMIT = 1e6;
+
+function finiteNum(v, min = -NUM_LIMIT, max = NUM_LIMIT) {
+  return typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : undefined;
+}
+
+function nonNegInt(v) {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  return Math.min(NUM_LIMIT, Math.max(0, Math.trunc(v)));
+}
+
+function shortString(v, max) {
+  return typeof v === 'string' ? v.slice(0, max) : undefined;
+}
+
+function sanitizeSide(p) {
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null;
+  const out = {};
+  const x = finiteNum(p.x); if (x !== undefined) out.x = x;
+  const y = finiteNum(p.y); if (y !== undefined) out.y = y;
+  const t = shortString(p.t, 80); if (t !== undefined) out.t = t;
+  if (p.ok !== undefined) out.ok = p.ok ? 1 : 0;
+  const st = shortString(p.st, 8);
+  if (st !== undefined) out.st = SIDE_STATUSES.has(st) ? st : 'n';
+  if (p.br !== undefined) out.br = p.br ? 1 : 0;
+  const fy = finiteNum(p.fy); if (fy !== undefined) out.fy = fy;
+  return out;
+}
+
+function sanitizeTrail(tr) {
+  if (!Array.isArray(tr)) return [];
+  const out = [];
+  for (const entry of tr.slice(0, 8)) {
+    if (!Array.isArray(entry)) continue;
+    const wx = finiteNum(entry[0]);
+    const wy = finiteNum(entry[1]);
+    if (wx === undefined || wy === undefined) continue;
+    const level = nonNegInt(entry[2]) ?? 0;
+    const raw = entry[3];
+    let status = 0;
+    if (typeof raw === 'number' && Number.isFinite(raw)) status = Math.trunc(raw);
+    else if (typeof raw === 'string') status = raw.slice(0, 8);
+    out.push([wx, wy, level, status]);
+  }
+  return out;
+}
+
+function sanitizeQuestion(q) {
+  if (q === null || q === undefined) return null;
+  if (typeof q !== 'object' || Array.isArray(q)) return null;
+  const out = {};
+  const t = shortString(q.t, 160); if (t !== undefined) out.t = t;
+  const e = shortString(q.e, 8); if (e !== undefined) out.e = e;
+  return out;
+}
+
+/**
+ * Sanitasi satu snapshot telemetri pemain.
+ * @returns {object|null} null bila `s` bukan objek (pesan harus diabaikan).
+ */
+export function sanitizePlayerState(s) {
+  if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
+  const out = {};
+
+  const f = nonNegInt(s.f); if (f !== undefined) out.f = f;
+  const sc = nonNegInt(s.sc); if (sc !== undefined) out.sc = sc;
+  const stk = nonNegInt(s.stk); if (stk !== undefined) out.stk = stk;
+
+  for (const key of ['cx', 'cy', 'sx', 'sy', 'sr']) {
+    const v = finiteNum(s[key]);
+    if (v !== undefined) out[key] = v;
+  }
+
+  const ss = shortString(s.ss, 16); if (ss !== undefined) out.ss = ss;
+  const se = shortString(s.se, 16); if (se !== undefined) out.se = se;
+
+  const sk = finiteNum(s.sk, 0, 1); if (sk !== undefined) out.sk = sk;
+  const kx = finiteNum(s.kx, 0.5, 2); if (kx !== undefined) out.kx = kx;
+  const ky = finiteNum(s.ky, 0.5, 2); if (ky !== undefined) out.ky = ky;
+
+  if (s.b !== undefined) {
+    const bx = Array.isArray(s.b) && s.b.length >= 2 ? finiteNum(s.b[0]) : undefined;
+    const by = Array.isArray(s.b) && s.b.length >= 2 ? finiteNum(s.b[1]) : undefined;
+    out.b = bx !== undefined && by !== undefined ? [bx, by] : null;
+  }
+  if (s.l !== undefined) out.l = sanitizeSide(s.l);
+  if (s.r !== undefined) out.r = sanitizeSide(s.r);
+  if (s.q !== undefined) out.q = sanitizeQuestion(s.q);
+  if (s.tr !== undefined) out.tr = sanitizeTrail(s.tr);
+
+  return out;
+}
+
+/** Relay snapshot terbaru HANYA ke observer room tsb (bukan tim/host). */
+export function relayPlayerState(r, teamId, s, t) {
+  if (!r.observers || r.observers.size === 0) return;
+  const payload = JSON.stringify({ type: 'player_state', teamId, s, t });
+  for (const obs of r.observers) {
+    if (obs && obs.ws && obs.ws.readyState === 1) try { obs.ws.send(payload); } catch {}
+  }
 }
 
 export function cleanupRooms(rooms, ttlMs = ROOM_TTL_MS, now = Date.now()) {
@@ -57,6 +199,7 @@ function parseMessage(raw) {
  *   room: string | null,
  *   teamId: string | null,
  *   isHost: boolean,
+ *   isObserver?: boolean,
  *   send(msg: object | string): void,
  * }} Connection
  */
@@ -77,6 +220,7 @@ export class RoomManager {
       room: null,
       teamId: null,
       isHost: false,
+      isObserver: false,
       send(payload) {
         ws.send(typeof payload === 'string' ? payload : JSON.stringify(payload));
       },
@@ -106,6 +250,7 @@ export class RoomManager {
         hostConn: conn,
         createdAt: this.now(),
         teams: new Map(),
+        observers: new Set(), // conn admin/spectator, bukan tim
       };
       this.rooms.set(code, r);
       conn.room = code; conn.isHost = true;
@@ -125,7 +270,7 @@ export class RoomManager {
         this._send(conn, { type: 'error', message: 'Nama tim sudah dipakai' }); return;
       }
       const id = Math.random().toString(36).slice(2, 7);
-      const team = { id, name, score: 0, floor: 0, streak: 0, ws: conn.ws, conn };
+      const team = { id, name, score: 0, floor: 0, streak: 0, ws: conn.ws, conn, state: null, stateAt: 0 };
       r.teams.set(id, team);
       conn.room = code; conn.teamId = id;
       this._send(conn, { type: 'joined', code, teamId: id, room: roomPublic(r) });
@@ -142,7 +287,7 @@ export class RoomManager {
         team.ws = conn.ws; team.conn = conn;
         conn.room = code; conn.teamId = id;
         this._send(conn, { type: 'rejoined', room: roomPublic(r) });
-        if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt });
+        if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, this.now()), remainingMs: remainingMs(r, this.now()) });
       }
       return;
     }
@@ -154,7 +299,47 @@ export class RoomManager {
       r.hostWs = conn.ws; r.hostConn = conn;
       conn.room = code; conn.isHost = true;
       this._send(conn, { type: 'rejoined_host', room: roomPublic(r) });
-      if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt });
+      if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, this.now()), remainingMs: remainingMs(r, this.now()) });
+      return;
+    }
+
+    if (t === 'spectate') {
+      const code = String(msg.code || '').toUpperCase().trim();
+      if (msg.adminPassword !== this.adminPassword) { this._send(conn, { type: 'error', message: 'Password admin salah' }); return; }
+      const r = this.rooms.get(code);
+      if (!r) { this._send(conn, { type: 'error', message: 'Room tidak ditemukan' }); return; }
+      // observer bukan tim & bukan host: jangan sentuh r.teams / maxTeams
+      if (conn.isObserver && conn.room && conn.room !== code) {
+        const prev = this.rooms.get(conn.room);
+        if (prev && prev.observers) prev.observers.delete(conn);
+      }
+      conn.room = code; conn.teamId = null; conn.isHost = false; conn.isObserver = true;
+      r.observers.add(conn);
+      this._send(conn, {
+        type: 'spectate_ok',
+        code,
+        room: roomPublic(r),
+        startedAt: r.startedAt || null,
+        duration: r.duration,
+        // Sisa waktu saat ini supaya spectator yang join di tengah pertandingan
+        // langsung memakai deadline yang sama dengan tim (null saat lobby).
+        remaining: remainingSeconds(r, this.now()),
+        remainingMs: remainingMs(r, this.now()),
+        observers: r.observers.size,
+      });
+      // snapshot terakhir tiap tim yang sudah pernah kirim telemetri
+      for (const team of r.teams.values()) {
+        if (team.state) this._send(conn, { type: 'player_state', teamId: team.id, s: team.state, t: team.stateAt });
+      }
+      return;
+    }
+
+    if (t === 'spectate_leave') {
+      if (conn.isObserver) {
+        const r = this.rooms.get(conn.room);
+        if (r && r.observers) r.observers.delete(conn);
+        conn.isObserver = false; conn.room = null;
+      }
       return;
     }
 
@@ -163,7 +348,7 @@ export class RoomManager {
       if (!r || !conn.isHost) { this._send(conn, { type: 'error', message: 'Hanya host yang bisa start' }); return; }
       if (r.teams.size === 0) { this._send(conn, { type: 'error', message: 'Belum ada tim join' }); return; }
       r.status = 'playing'; r.startedAt = this.now();
-      const payload = { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt };
+      const payload = { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, r.startedAt), remainingMs: remainingMs(r, r.startedAt) };
       broadcast(r, payload);
       // also to host
       this._send(conn, payload);
@@ -186,6 +371,21 @@ export class RoomManager {
           .map(x => ({ id: x.id, name: x.name, score: x.score, floor: x.floor, streak: x.streak }))
           .sort((a, b) => b.score - a.score),
       });
+      return;
+    }
+
+    if (t === 'player_state') {
+      const r = this.rooms.get(conn.room);
+      if (!r || r.status !== 'playing') return;
+      // hanya tim asli yang boleh kirim telemetri (observer/host diabaikan)
+      if (!conn.teamId) return;
+      const team = r.teams.get(conn.teamId);
+      if (!team) return;
+      const s = sanitizePlayerState(msg.s);
+      if (!s) return; // s bukan objek -> abaikan
+      team.state = s;
+      team.stateAt = this.now();
+      relayPlayerState(r, team.id, s, team.stateAt);
       return;
     }
 
@@ -219,6 +419,12 @@ export class RoomManager {
     if (!conn.room) return;
     const r = this.rooms.get(conn.room);
     if (!r) return;
+    if (conn.isObserver) {
+      // observer putus: cukup keluarkan dari Set, tanpa room_update palsu
+      if (r.observers) r.observers.delete(conn);
+      conn.isObserver = false;
+      return;
+    }
     if (conn.isHost) {
       // host disconnect: keep room but mark host offline; room still alive via TTL
       r.hostWs = null;
@@ -228,6 +434,8 @@ export class RoomManager {
       const t = r.teams.get(conn.teamId);
       if (t) { t.ws = null; t.conn = null; }
       broadcast(r, { type: 'room_update', room: roomPublic(r) });
+      // beri tahu observer agar bisa menandai tim offline (state terakhir tetap disimpan)
+      if (r.observers) for (const obs of r.observers) this._send(obs, { type: 'team_offline', teamId: conn.teamId });
     }
   }
 

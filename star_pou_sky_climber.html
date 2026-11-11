@@ -118,6 +118,35 @@
       border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px;
     }
     .btn-small:hover { background: #2563eb; }
+    /* Layar kecil: HUD dipadatkan supaya scene 3D tetap lega */
+    @media (max-width: 640px) {
+      .hud { top: 8px; left: 8px; right: 8px; gap: 6px; }
+      .hud-box { padding: 4px 8px; gap: 8px; border-radius: 12px; }
+      .stat-label { font-size: 8px; letter-spacing: .5px; }
+      #team-display { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .stat-val { font-size: 16px; }
+      .zone-badge { display: none; }
+      .btn-small { font-size: 10px; padding: 4px 8px; }
+      .question-container { top: 62px; padding: 8px 12px; border-width: 3px; border-radius: 16px; width: min(94vw, 560px); }
+      .q-number { font-size: 10px; padding: 2px 8px; }
+      .q-emoji { font-size: 20px; }
+      .q-text { font-size: 15px; }
+      .bottom-bar { font-size: 10px; gap: 6px; padding: 5px 8px; white-space: normal; flex-wrap: wrap; justify-content: center; max-width: 96vw; }
+      .key-badge { padding: 1px 4px; font-size: 10px; }
+    }
+    @media (max-height: 520px) {
+      .hud { top: 6px; left: 6px; right: 6px; }
+      .hud-box { padding: 2px 7px; gap: 8px; }
+      .stat-label { font-size: 8px; }
+      .stat-val { font-size: 15px; }
+      .zone-badge { font-size: 9px; padding: 2px 6px; }
+      .question-container { top: 38px; padding: 4px 8px; border-width: 3px; width: min(96vw, 620px); border-radius: 14px; }
+      .q-number { font-size: 8px; padding: 1px 6px; }
+      .q-emoji { font-size: 14px; }
+      .q-text { font-size: 12px; }
+      .bottom-bar { font-size: 9px; padding: 4px 8px; gap: 6px; }
+      .key-badge { font-size: 9px; padding: 1px 4px; }
+    }
   </style>
 </head>
 <body>
@@ -194,7 +223,8 @@
         </select>
       </div>
 
-      <button class="btn-play" onclick="startGame()">🚀 MULAI NAIK TANGGA!</button>
+            <button class="btn-play" onclick="startGame()">🚀 MULAI NAIK TANGGA!</button>
+      
     </div>
   </div>
 
@@ -289,16 +319,23 @@
     const ctx = canvas.getContext('2d');
     let W = window.innerWidth;
     let H = window.innerHeight;
-    canvas.width = W; canvas.height = H;
+    // Renderer 3D menggambar pada resolusi device; DPR dibatasi 2 supaya ringan.
+    let DPR = 1;
+
+    function resizeViewport() {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      DPR = Math.min(2, window.devicePixelRatio || 1);
+      if (typeof DPR !== 'number' || !isFinite(DPR) || DPR <= 0) DPR = 1;
+      canvas.width = Math.round(W * DPR);
+      canvas.height = Math.round(H * DPR);
+      STEP_X = Math.min(230, W * 0.23);
+    }
 
     const STEP_Y = 210; // Vertical distance between stairs
     let STEP_X = Math.min(230, W * 0.23); // Horizontal spread of left/right options
-
-    window.addEventListener('resize', () => {
-      W = window.innerWidth; H = window.innerHeight;
-      canvas.width = W; canvas.height = H;
-      STEP_X = Math.min(230, W * 0.23);
-    });
+    resizeViewport();
+    window.addEventListener('resize', resizeViewport);
 
     // Camera in World Coordinates (As player climbs up, worldY becomes more negative)
     const cam = {
@@ -328,6 +365,7 @@
     // Parallax Clouds & Stars
     let bgClouds = [];
     let spaceStars = [];
+    let fgClouds = [];
     let particles = [];
     let floatingTexts = [];
 
@@ -338,7 +376,8 @@
           offsetX: (Math.random() - 0.5) * W * 1.8,
           worldY: -i * 180 - Math.random() * 120,
           scale: 0.6 + Math.random() * 0.7,
-          speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1)
+          speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1),
+          worldZ: -(800 + Math.random() * 2000)
         });
       }
       spaceStars = [];
@@ -349,6 +388,18 @@
           size: 1 + Math.random() * 2.5,
           blinkSpeed: 0.002 + Math.random() * 0.006,
           phase: Math.random() * Math.PI * 2
+        });
+      }
+      // Awan tipis di depan kamera: memperkuat kesan kedalaman 3D.
+      fgClouds = [];
+      for (let i = 0; i < 4; i++) {
+        const side = i < 2 ? -1 : 1;
+        fgClouds.push({
+          offsetX: side * W * (0.5 + Math.random() * 0.45),
+          offsetY: -320 + Math.random() * 150,
+          zOff: 210 + Math.random() * 140,
+          scale: 0.9 + Math.random() * 0.7,
+          speed: side * (0.25 + Math.random() * 0.35)
         });
       }
     }
@@ -515,7 +566,8 @@
             offsetX: (Math.random() - 0.5) * W * 1.8,
             worldY: highestCloudY - (i + 1) * 190,
             scale: 0.6 + Math.random() * 0.7,
-            speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1)
+            speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1),
+            worldZ: -(760 + Math.random() * 1900)
           });
         }
       }
@@ -625,7 +677,224 @@
       else triggerJump('right');
     });
 
-    // --- 6. COLOR INTERPOLATION & SKY / GROUND / SPACE RENDERING ---
+    // --- 6. RENDERER 3D (software, Canvas 2D) ---
+    // World gameplay (wx, wy; wy negatif = naik) dipetakan ke 3D: x = wx, y = -wy.
+    // Kamera di +z menghadap -z: proyeksi perspektif pinhole + painter's algorithm.
+    // Tidak butuh WebGL / GPU / library eksternal.
+    const DEG = Math.PI / 180;
+    const CAM_FOV_DEG = 55;
+    const CAM_NEAR = 20;
+    const ZONE_STEPS = [900, 1800, 2700];
+    const EYE_ABOVE = 160;
+    const LIGHT_DIR = (() => {
+      const raw = { x: -0.35, y: 0.8, z: 0.45 };
+      const n = Math.hypot(raw.x, raw.y, raw.z) || 1;
+      return { x: raw.x / n, y: raw.y / n, z: raw.z / n };
+    })();
+
+    const camera3D = {
+      eye: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 },
+      fwd: { x: 0, y: 0, z: -1 }, right: { x: 1, y: 0, z: 0 }, up: { x: 0, y: 1, z: 0 },
+      focal: 800, near: CAM_NEAR, fov: CAM_FOV_DEG, dist: 520, yaw: 0, pitch: 0, scale: 1,
+    };
+
+    function vSub(a, b) { return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }; }
+    function vDot(a, b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+    function vCross(a, b) {
+      return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
+    }
+    function vLen(a) { return Math.hypot(a.x, a.y, a.z); }
+    function vNorm(a) { const l = vLen(a) || 1; return { x: a.x / l, y: a.y / l, z: a.z / l }; }
+    // Kecerahan muka dari arah cahaya (untuk sisi miring); top/bottom memakai
+    // nilai tetap supaya kontras toon tetap stabil.
+    function faceBrightness(pts, fallback) {
+      if (!pts || pts.length < 3) return fallback;
+      const n = vNorm(vCross(vSub(pts[1], pts[0]), vSub(pts[2], pts[0])));
+      return 0.58 + 0.42 * Math.abs(vDot(n, LIGHT_DIR));
+    }
+    function gameTo3D(wx, wy, wz = 0) { return { x: wx, y: -wy, z: wz || 0 }; }
+
+    function parseHex(hex) {
+      const s = String(hex).replace('#', '');
+      const full = s.length === 3 ? s.split('').map((c) => c + c).join('') : s;
+      const n = parseInt(full, 16) || 0;
+      return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+    }
+    function rgba(hex, a) {
+      const c = parseHex(hex);
+      return `rgba(${c.r},${c.g},${c.b},${a})`;
+    }
+    function shadeHex(hex, k) {
+      const f = Math.max(0, Math.min(1.4, k));
+      const c = parseHex(hex);
+      return `rgb(${Math.min(255, Math.round(c.r * f))},${Math.min(255, Math.round(c.g * f))},${Math.min(255, Math.round(c.b * f))})`;
+    }
+    function mixHex(a, b, t) {
+      const f = Math.max(0, Math.min(1, t));
+      const c1 = parseHex(a), c2 = parseHex(b);
+      return `rgb(${Math.round(c1.r + (c2.r - c1.r) * f)},${Math.round(c1.g + (c2.g - c1.g) * f)},${Math.round(c1.b + (c2.b - c1.b) * f)})`;
+    }
+
+    // --- 6.1 Kamera rig: kamera mengikuti pijakan saat bintang naik ---
+    // zoom = 1 -> framing normal pemain; >1 mendekat (zoom in); <1 menjauh.
+    function updateCameraRig(t, zoom) {
+      const zoomRaw = Number(zoom);
+      const zoomK = isFinite(zoomRaw) ? Math.max(0.6, Math.min(2.4, zoomRaw)) : 1;
+      const focal = (H / 2) / Math.tan((CAM_FOV_DEG * DEG) / 2);
+      const platHalf = Math.min(250, STEP_X * 1.7) / 2;
+      // Layar pendek (mis. HP landscape) perlu skala kamera lebih kecil supaya
+      // papan jawaban tidak tertutup banner pertanyaan.
+      const sVert = ((H >= 520 ? 0.33 : 0.30) * H) / (STEP_Y * 0.86);
+      const sHoriz = (0.46 * W) / (STEP_X + platHalf);
+      const s = Math.max(0.5, Math.min(1.75, Math.min(sVert, sHoriz)));
+      const dist = Math.max(340, focal / s) / zoomK;
+      const AU = STEP_Y * 0.86;
+      const aim = { x: cam.x, y: -cam.y + AU, z: 0 };
+      const orbit = Math.sin((t || 0) * 0.00018) * 3 * DEG;
+      camera3D.yaw = orbit;
+      const eye = {
+        x: aim.x + Math.sin(orbit) * dist,
+        y: aim.y + EYE_ABOVE,
+        z: aim.z + Math.cos(orbit) * dist,
+      };
+      const fwd = vNorm(vSub(aim, eye));
+      camera3D.fov = CAM_FOV_DEG;
+      camera3D.focal = focal;
+      camera3D.near = CAM_NEAR;
+      camera3D.dist = dist;
+      camera3D.target = aim;
+      camera3D.eye = eye;
+      camera3D.fwd = fwd;
+      camera3D.right = vNorm(vCross(fwd, { x: 0, y: 1, z: 0 }));
+      camera3D.up = vCross(camera3D.right, fwd);
+      camera3D.pitch = Math.asin(Math.max(-1, Math.min(1, -fwd.y)));
+      camera3D.scale = focal / dist;
+      camera3D.zoom = zoomK;
+    }
+
+    // --- 6.2 Proyeksi & clipping ---
+    function projectPoint(p) {
+      const c = camera3D;
+      const dx = p.x - c.eye.x, dy = p.y - c.eye.y, dz = p.z - c.eye.z;
+      const zv = dx * c.fwd.x + dy * c.fwd.y + dz * c.fwd.z;
+      if (zv < c.near) return null;
+      const xv = dx * c.right.x + dy * c.right.y + dz * c.right.z;
+      const yv = dx * c.up.x + dy * c.up.y + dz * c.up.z;
+      const sc = c.focal / zv;
+      return { x: W / 2 + xv * sc, y: H / 2 - yv * sc, depth: zv, scale: sc };
+    }
+    function projectGamePoint(wx, wy, wz = 0) {
+      return projectPoint(gameTo3D(wx, wy, wz));
+    }
+    function viewDepth(p) {
+      const c = camera3D;
+      return (p.x - c.eye.x) * c.fwd.x + (p.y - c.eye.y) * c.fwd.y + (p.z - c.eye.z) * c.fwd.z;
+    }
+    function clipPolygonNear(pts) {
+      const c = camera3D;
+      const near = c.near;
+      const viewed = pts.map((p) => ({ p, z: viewDepth(p) }));
+      const out = [];
+      for (let i = 0; i < viewed.length; i++) {
+        const a = viewed[i], b = viewed[(i + 1) % viewed.length];
+        const aIn = a.z >= near, bIn = b.z >= near;
+        if (aIn) out.push(a.p);
+        if (aIn !== bIn) {
+          const t = (near - a.z) / (b.z - a.z || 1e-6);
+          out.push({
+            x: a.p.x + (b.p.x - a.p.x) * t,
+            y: a.p.y + (b.p.y - a.p.y) * t,
+            z: a.p.z + (b.p.z - a.p.z) * t,
+          });
+        }
+      }
+      return out;
+    }
+    function projectPoly3(pts) {
+      const clipped = clipPolygonNear(pts);
+      if (clipped.length < 3) return null;
+      const out = [];
+      for (const p of clipped) {
+        const q = projectPoint(p);
+        if (!q) return null;
+        out.push(q);
+      }
+      return out;
+    }
+    function fillPolyScreen(scr, fill, stroke, lineWidth) {
+      ctx.beginPath();
+      for (let i = 0; i < scr.length; i++) {
+        if (i === 0) ctx.moveTo(scr[i].x, scr[i].y);
+        else ctx.lineTo(scr[i].x, scr[i].y);
+      }
+      ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = lineWidth || 2.5; ctx.lineJoin = 'round'; ctx.stroke(); }
+    }
+    function drawPoly3(pts, fill, opts) {
+      const scr = projectPoly3(pts);
+      if (!scr) return false;
+      const o = opts || {};
+      fillPolyScreen(scr, fill, o.stroke || null, o.lineWidth);
+      return true;
+    }
+    function sortByDepth(items, getDepth) {
+      return items.slice().sort((a, b) => getDepth(b) - getDepth(a));
+    }
+
+    // --- 6.3 Sprite cache (awan, glow) ---
+    const spriteCache = new Map();
+    function makeCloudSprite(tint) {
+      const key = 'cloud:' + tint;
+      if (spriteCache.has(key)) return spriteCache.get(key);
+      const cv = document.createElement('canvas');
+      cv.width = 192;
+      cv.height = 128;
+      const g2 = cv.getContext('2d');
+      const blobs = [
+        [0.30, 0.62, 0.30], [0.50, 0.48, 0.34], [0.70, 0.60, 0.29],
+        [0.44, 0.72, 0.28], [0.24, 0.76, 0.22], [0.60, 0.76, 0.24],
+      ];
+      for (const [bx, by, br] of blobs) {
+        const grad = g2.createRadialGradient(bx * 192, by * 128, 2, bx * 192, by * 128, br * 192);
+        grad.addColorStop(0, rgba(tint, 1));
+        grad.addColorStop(0.55, rgba(tint, 0.94));
+        grad.addColorStop(1, rgba(tint, 0));
+        g2.fillStyle = grad;
+        g2.fillRect(0, 0, 192, 128);
+      }
+      spriteCache.set(key, cv);
+      return cv;
+    }
+    function makeGlowSprite(color) {
+      const key = 'glow:' + color;
+      if (spriteCache.has(key)) return spriteCache.get(key);
+      const cv = document.createElement('canvas');
+      cv.width = 128;
+      cv.height = 128;
+      const g2 = cv.getContext('2d');
+      const grad = g2.createRadialGradient(64, 64, 2, 64, 64, 64);
+      grad.addColorStop(0, rgba(color, 0.95));
+      grad.addColorStop(0.28, rgba(color, 0.55));
+      grad.addColorStop(1, rgba(color, 0));
+      g2.fillStyle = grad;
+      g2.fillRect(0, 0, 128, 128);
+      spriteCache.set(key, cv);
+      return cv;
+    }
+    function drawSpriteWorld(sprite, p3, worldSize, alpha) {
+      const pc = projectPoint(p3);
+      if (!pc) return null;
+      const w = worldSize * pc.scale;
+      if (w < 3 || !isFinite(w)) return null;
+      const h = w * (sprite.height / sprite.width);
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+      ctx.drawImage(sprite, pc.x - w / 2, pc.y - h / 2, w, h);
+      ctx.globalAlpha = 1;
+      return pc;
+    }
+
+    // --- 6.4 Zona langit (ambang sama dengan versi 2D) ---
     function lerpColor(hex1, hex2, factor) {
       const f = Math.max(0, Math.min(1, factor));
       const c1 = parseInt(hex1.slice(1), 16);
@@ -635,258 +904,405 @@
       const b = Math.round((c1 & 255) * (1 - f) + (c2 & 255) * f);
       return `rgb(${r},${g},${b})`;
     }
-
-    function drawSkyAndEnvironment(t) {
-      // Altitude factor based on camera Y (0 at ground, ~3000 in space)
-      const altitudePx = Math.max(0, -cam.y);
-
-      let topCol, botCol;
-      if (altitudePx < 900) {
-        // Zone 1: Sunny Sky to High Blue Sky
-        const f = altitudePx / 900;
-        topCol = lerpColor('#2563eb', '#1d4ed8', f);
-        botCol = lerpColor('#93c5fd', '#38bdf8', f);
-      } else if (altitudePx < 1800) {
-        // Zone 2: High Sky to Sunset Stratosphere
-        const f = (altitudePx - 900) / 900;
-        topCol = lerpColor('#1d4ed8', '#311042', f);
-        botCol = lerpColor('#38bdf8', '#f97316', f);
-      } else if (altitudePx < 2700) {
-        // Zone 3: Sunset to Deep Night / Exosphere
-        const f = (altitudePx - 1800) / 900;
-        topCol = lerpColor('#311042', '#030712', f);
-        botCol = lerpColor('#f97316', '#1e1b4b', f);
+    function zonePalette(altitudePx) {
+      const alt = Math.max(0, altitudePx || 0);
+      let top, bottom;
+      if (alt < ZONE_STEPS[0]) {
+        const f = alt / ZONE_STEPS[0];
+        top = lerpColor('#2563eb', '#1d4ed8', f);
+        bottom = lerpColor('#93c5fd', '#38bdf8', f);
+      } else if (alt < ZONE_STEPS[1]) {
+        const f = (alt - ZONE_STEPS[0]) / (ZONE_STEPS[1] - ZONE_STEPS[0]);
+        top = lerpColor('#1d4ed8', '#311042', f);
+        bottom = lerpColor('#38bdf8', '#f97316', f);
+      } else if (alt < ZONE_STEPS[2]) {
+        const f = (alt - ZONE_STEPS[1]) / (ZONE_STEPS[2] - ZONE_STEPS[1]);
+        top = lerpColor('#311042', '#030712', f);
+        bottom = lerpColor('#f97316', '#1e1b4b', f);
       } else {
-        // Zone 4: Deep Outer Space
-        topCol = '#02040a';
-        botCol = '#0f172a';
+        top = '#02040a';
+        bottom = '#0f172a';
       }
+      const starAlpha = Math.min(1, Math.max(0, (alt - 1100) / 1000));
+      const planetAlpha = Math.min(1, Math.max(0, (alt - 2000) / 900));
+      const sunset = Math.max(0, Math.min(1, (alt - 900) / 700)) * Math.max(0, Math.min(1, (2500 - alt) / 1100));
+      const cosmic = alt >= ZONE_STEPS[2];
+      const cloudTint = alt > 2200 ? '#a78bfa' : alt > 1100 ? '#fdba74' : '#ffffff';
+      const name = alt < ZONE_STEPS[0] ? 'Bumi & Rumput'
+        : alt < ZONE_STEPS[1] ? 'Langit Awan'
+          : alt < ZONE_STEPS[2] ? 'Atmosfer Senja' : 'Luar Angkasa';
+      return { top, bottom, fog: bottom, starAlpha, planetAlpha, sunset, cosmic, cloudTint, name };
+    }
 
+    // --- 6.5 Langit, bintang, bulan, planet, awan latar ---
+    function drawSkyAndEnvironment(t) {
+      const pal = zonePalette(-cam.y);
       const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-      skyGrad.addColorStop(0, topCol);
-      skyGrad.addColorStop(1, botCol);
+      skyGrad.addColorStop(0, pal.top);
+      skyGrad.addColorStop(1, pal.bottom);
       ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, W, H);
 
-      // 1. Stars & Planets (Fade in as we approach Sunset/Space)
-      if (altitudePx > 1100) {
-        const starAlpha = Math.min(1, (altitudePx - 1100) / 1000);
-        spaceStars.forEach(st => {
-          const twinkle = 0.4 + 0.6 * Math.abs(Math.sin(t * st.blinkSpeed + st.phase));
-          ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha * twinkle})`;
-          // Parallax vertical scroll for stars
-          const sy = ((st.ry * H + altitudePx * 0.15) % H + H) % H;
+      // Bintang latar (twinkle), ikut sedikit rotasi kamera
+      if (pal.starAlpha > 0.01) {
+        const yawShift = -camera3D.yaw * W * 0.4;
+        for (const st of spaceStars) {
+          const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * st.blinkSpeed + st.phase));
+          const sx = ((st.rx * W + yawShift) % W + W) % W;
+          const sy = st.ry * H * 0.9 + H * 0.03;
+          ctx.fillStyle = `rgba(255,255,255,${(pal.starAlpha * tw).toFixed(3)})`;
           ctx.beginPath();
-          ctx.arc(st.rx * W, sy, st.size, 0, Math.PI * 2);
+          ctx.arc(sx, sy, st.size * (0.8 + 0.5 * tw), 0, Math.PI * 2);
           ctx.fill();
-        });
-
-        // Draw Moon & Ringed Planet in Space
-        const planetY = H * 0.25 + (altitudePx - 2400) * 0.18;
-        ctx.save();
-        ctx.globalAlpha = starAlpha;
-        // Glowing Moon
-        ctx.fillStyle = '#fef08a';
-        ctx.shadowColor = '#fef08a';
-        ctx.shadowBlur = 30;
-        ctx.beginPath();
-        ctx.arc(W * 0.82, planetY, 42, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // Saturn-like Planet
-        if (altitudePx > 2000) {
-          const satY = H * 0.35 + (altitudePx - 3000) * 0.22;
-          ctx.fillStyle = '#c084fc';
-          ctx.beginPath();
-          ctx.arc(W * 0.18, satY, 34, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = '#fde047';
-          ctx.lineWidth = 5;
-          ctx.beginPath();
-          ctx.ellipse(W * 0.18, satY, 64, 14, -0.25, 0, Math.PI * 2);
-          ctx.stroke();
         }
-        ctx.restore();
       }
 
-      // 2. Parallax Clouds (Scroll down as camera climbs up)
-      bgClouds.forEach(c => {
+      // Matahari senja
+      if (pal.sunset > 0.02) {
+        const sun = projectPoint({ x: -2300, y: 1450, z: -3200 });
+        if (sun) {
+          drawSpriteWorld(makeGlowSprite('#f59e0b'), { x: -2300, y: 1450, z: -3200 }, 1500, pal.sunset * 0.7);
+          const r = 130 * sun.scale;
+          const grad = ctx.createRadialGradient(sun.x - r * 0.25, sun.y - r * 0.25, r * 0.1, sun.x, sun.y, r);
+          grad.addColorStop(0, '#fff7ed');
+          grad.addColorStop(0.55, '#fbbf24');
+          grad.addColorStop(1, '#f97316');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(sun.x, sun.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Bulan
+      if (pal.starAlpha > 0.05) {
+        const moonP = { x: 1700, y: 3400, z: -2800 };
+        const moon = projectPoint(moonP);
+        if (moon) {
+          drawSpriteWorld(makeGlowSprite('#fef08a'), moonP, 1300, pal.starAlpha * 0.55);
+          const r = 175 * moon.scale;
+          const mg = ctx.createRadialGradient(moon.x - r * 0.35, moon.y - r * 0.35, r * 0.1, moon.x, moon.y, r);
+          mg.addColorStop(0, '#fefce8');
+          mg.addColorStop(0.65, '#fde047');
+          mg.addColorStop(1, '#ca8a04');
+          ctx.fillStyle = mg;
+          ctx.beginPath();
+          ctx.arc(moon.x, moon.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Planet bercincin
+      if (pal.planetAlpha > 0.05) {
+        const planetP = { x: -2300, y: 3300, z: -3200 };
+        const planet = projectPoint(planetP);
+        if (planet) {
+          const r = 215 * planet.scale;
+          const pg = ctx.createRadialGradient(planet.x - r * 0.35, planet.y - r * 0.35, r * 0.1, planet.x, planet.y, r);
+          pg.addColorStop(0, '#e9d5ff');
+          pg.addColorStop(0.6, '#c084fc');
+          pg.addColorStop(1, '#6b21a8');
+          ctx.globalAlpha = pal.planetAlpha;
+          ctx.fillStyle = pg;
+          ctx.beginPath();
+          ctx.arc(planet.x, planet.y, r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#fde047';
+          ctx.lineWidth = Math.max(2, r * 0.12);
+          ctx.beginPath();
+          ctx.ellipse(planet.x, planet.y, r * 1.9, r * 0.42, -0.28, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Awan latar 3D (urut jauh -> dekat)
+      const tint = pal.cloudTint;
+      const sprite = makeCloudSprite(tint);
+      const items = [];
+      bgClouds.forEach((c, i) => {
         c.offsetX += c.speed;
         if (c.offsetX > W) c.offsetX = -W;
         if (c.offsetX < -W) c.offsetX = W;
-
-        // Convert worldY to screenY with parallax
-        const screenX = W * 0.5 + c.offsetX - cam.x * 0.35;
-        const screenY = H * 0.78 + (c.worldY - cam.y * 0.65);
-
-        if (screenY > -150 && screenY < H + 150) {
-          ctx.save();
-          // Tint clouds based on altitude
-          if (altitudePx > 2200) {
-            ctx.fillStyle = 'rgba(139, 92, 246, 0.18)'; // Space nebula cloud
-          } else if (altitudePx > 1100) {
-            ctx.fillStyle = 'rgba(251, 146, 60, 0.32)'; // Sunset cloud
-          } else {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'; // Fluffy white cloud
-          }
-          const s = c.scale;
-          ctx.beginPath();
-          ctx.arc(screenX, screenY, 38 * s, 0, Math.PI * 2);
-          ctx.arc(screenX + 30 * s, screenY - 12 * s, 30 * s, 0, Math.PI * 2);
-          ctx.arc(screenX + 60 * s, screenY, 34 * s, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.restore();
-        }
+        const z = typeof c.worldZ === 'number' ? c.worldZ : -(400 + ((i * 397) % 2200));
+        const p3 = { x: cam.x + c.offsetX * 1.45, y: -c.worldY, z };
+        const pc = projectPoint(p3);
+        if (!pc) return;
+        items.push({ c, p3, pc });
       });
-
-      // 3. Ground Hills & Grass at WorldY = 0 (Scrolls down out of view as you climb!)
-      const groundScreenY = worldToScreenY(0);
-      if (groundScreenY < H + 300) {
-        // Back Green Hills
-        ctx.fillStyle = '#16a34a';
-        ctx.beginPath();
-        ctx.arc(W * 0.2 - cam.x * 0.4, groundScreenY + 90, 260, Math.PI, 0);
-        ctx.arc(W * 0.8 - cam.x * 0.4, groundScreenY + 110, 300, Math.PI, 0);
-        ctx.fill();
-
-        // Main Grass Ground
-        ctx.fillStyle = '#22c55e';
-        ctx.fillRect(0, groundScreenY, W, H - groundScreenY + 400);
-
-        // Top Grass Rim
-        ctx.fillStyle = '#4ade80';
-        ctx.fillRect(0, groundScreenY, W, 14);
-
-        // Dirt Layer Below
-        ctx.fillStyle = '#854d0e';
-        ctx.fillRect(0, groundScreenY + 35, W, H);
+      items.sort((a, b) => b.pc.depth - a.pc.depth);
+      for (const it of items) {
+        const depth = it.pc.depth;
+        const fog = Math.max(0.16, 1 - Math.max(0, depth - 500) / 2400);
+        const sizeWorld = 620 * it.c.scale;
+        drawSpriteWorld(sprite, it.p3, sizeWorld, 0.34 * fog);
       }
     }
 
-    // Coordinate Helpers (World -> Screen)
-    function worldToScreenX(wx) {
-      return W * 0.5 + (wx - cam.x);
-    }
-    function worldToScreenY(wy) {
-      return H * 0.78 + (wy - cam.y);
+    // --- 6.6 Pulau bumi low-poly (pulau melayang di bawah pemain) ---
+    function drawGroundIsland() {
+      const eyeY = camera3D.eye.y;
+      if (eyeY > 3000) return;
+      const pal = zonePalette(-cam.y);
+      // Aerial perspective: makin tinggi kamera, pulau makin pudar ke warna langit.
+      const haze = Math.max(0, Math.min(0.8, (eyeY - 300) / 1900));
+      const R = Math.max(1200, camera3D.dist * 2.0);
+      const SEG = 20;
+      const ring = [];
+      for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        ring.push({ x: Math.cos(a) * R, y: 0, z: Math.sin(a) * R });
+      }
+      const grass = mixHex('#22c55e', pal.fog, haze);
+      const grassLight = mixHex('#4ade80', pal.fog, haze);
+      const dirt = mixHex('#7c4a12', pal.fog, haze * 0.9);
+      const dirtLight = mixHex('#8b5a1b', pal.fog, haze * 0.9);
+
+      // 1. Skirt tanah: tepi pulau melayang yang terlihat saat bintang naik.
+      for (let i = 0; i < SEG; i++) {
+        const a = ring[i], b = ring[(i + 1) % SEG];
+        drawPoly3([
+          { x: a.x, y: 0, z: a.z }, { x: b.x, y: 0, z: b.z },
+          { x: b.x, y: -230, z: b.z }, { x: a.x, y: -230, z: a.z },
+        ], i % 2 ? dirt : dirtLight, { stroke: 'rgba(15,23,42,0.22)', lineWidth: 1.5 });
+      }
+      // 2. Permukaan rumput (fan segitiga; poligon kecil jadi aman saat clipping).
+      const center = { x: 0, y: 0, z: 0 };
+      for (let i = 0; i < SEG; i++) {
+        const a = ring[i], b = ring[(i + 1) % SEG];
+        drawPoly3([center, a, b], grass, null);
+      }
+      // 3. Rim rumput lebih terang di tepi pulau.
+      for (let i = 0; i < SEG; i++) {
+        const a = ring[i], b = ring[(i + 1) % SEG];
+        drawPoly3([
+          a, b, { x: b.x * 0.84, y: 1, z: b.z * 0.84 }, { x: a.x * 0.84, y: 1, z: a.z * 0.84 },
+        ], grassLight, null);
+      }
+      // 4. Bukit low-poly (kecil, di atas pulau).
+      const hillFade = Math.min(0.65, haze + 0.1);
+      const hills = [[-680, -520, 360, 230], [640, -460, 300, 190], [-90, -820, 440, 260]];
+      for (const [hx, hz, hr, hh] of hills) {
+        const apex = { x: hx, y: hh, z: hz };
+        for (let i = 0; i < 10; i++) {
+          const a1 = (i / 10) * Math.PI * 2, a2 = ((i + 1) / 10) * Math.PI * 2;
+          const p1 = { x: hx + Math.cos(a1) * hr, y: 0, z: hz + Math.sin(a1) * hr };
+          const p2 = { x: hx + Math.cos(a2) * hr, y: 0, z: hz + Math.sin(a2) * hr };
+          drawPoly3([p1, p2, apex], mixHex(i % 2 ? '#15803d' : '#16a34a', pal.fog, hillFade), null);
+        }
+        const cap = [];
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          cap.push({ x: hx + Math.cos(a) * hr * 0.34, y: hh * 0.42, z: hz + Math.sin(a) * hr * 0.34 });
+        }
+        drawPoly3(cap, mixHex('#4ade80', pal.fog, hillFade), null);
+      }
+      // 5. Pohon low-poly (kerucut 3 lapis).
+      const tileFade = Math.min(0.7, haze + 0.1);
+      const trees = [[-330, -380], [270, -500], [460, -300], [-520, -220], [120, -640]];
+      for (const [tx, tz] of trees) {
+        drawPoly3([
+          { x: tx - 16, y: 0, z: tz }, { x: tx + 16, y: 0, z: tz },
+          { x: tx + 16, y: 90, z: tz }, { x: tx - 16, y: 90, z: tz },
+        ], mixHex('#7c4a12', pal.fog, tileFade), null);
+        for (let layer = 0; layer < 3; layer++) {
+          const baseY = 60 + layer * 58;
+          const r = 105 - layer * 24;
+          const apex = { x: tx, y: baseY + 92, z: tz };
+          for (let i = 0; i < 6; i++) {
+            const a1 = (i / 6) * Math.PI * 2, a2 = ((i + 1) / 6) * Math.PI * 2;
+            const p1 = { x: tx + Math.cos(a1) * r, y: baseY, z: tz + Math.sin(a1) * r };
+            const p2 = { x: tx + Math.cos(a2) * r, y: baseY, z: tz + Math.sin(a2) * r };
+            drawPoly3([p1, p2, apex], mixHex(i % 2 ? '#15803d' : '#22c55e', pal.fog, tileFade), null);
+          }
+        }
+      }
     }
 
-    // --- 7. DRAW CLOUD/STAIR PLATFORMS & STAR-POU ---
+    // --- 6.7 Slab awan platform + papan jawaban ---
+    function platformRenderWidth(p) {
+      return Math.min(p.w || 250, STEP_X * 1.7);
+    }
+    function platformTopY(p) {
+      return -p.wy + 10 - (p.fallY || 0);
+    }
+    function buildPlatformMesh(p, rw) {
+      const halfW = rw / 2;
+      const halfD = 85;
+      const thick = p.isStart ? 26 : 20;
+      const topY = platformTopY(p);
+      const chamfer = Math.min(halfW, halfD) * 0.4;
+      const local = [
+        { x: -halfW + chamfer, z: halfD }, { x: halfW - chamfer, z: halfD },
+        { x: halfW, z: halfD - chamfer }, { x: halfW, z: -halfD + chamfer },
+        { x: halfW - chamfer, z: -halfD }, { x: -halfW + chamfer, z: -halfD },
+        { x: -halfW, z: -halfD + chamfer }, { x: -halfW, z: halfD - chamfer },
+      ];
+      const top = local.map((q) => ({ x: p.wx + q.x, y: topY, z: q.z }));
+      const bot = local.map((q) => ({ x: p.wx + q.x, y: topY - thick, z: q.z }));
+      const faces = [{ kind: 'top', pts: top }, { kind: 'bottom', pts: bot.slice().reverse() }];
+      for (let i = 0; i < 8; i++) {
+        const j = (i + 1) % 8;
+        faces.push({ kind: 'side', pts: [top[i], top[j], bot[j], bot[i]] });
+      }
+      return { rw, wy: p.wy + (p.fallY || 0), faces, topY, halfW, halfD };
+    }
+    function platformMesh(p) {
+      const rw = platformRenderWidth(p);
+      const wy = p.wy + (p.fallY || 0);
+      if (!p._mesh3d || Math.abs(p._mesh3d.rw - rw) > 0.5 || Math.abs(p._mesh3d.wy - wy) > 0.5) {
+        p._mesh3d = buildPlatformMesh(p, rw);
+      }
+      return p._mesh3d;
+    }
+    function platformPalette(p) {
+      if (p.isStart) return { top: '#fde047', side: '#eab308', rim: '#ca8a04' };
+      if (p.status === 'correct') return { top: '#4ade80', side: '#22c55e', rim: '#15803d' };
+      if (p.status === 'wrong') return { top: '#f87171', side: '#ef4444', rim: '#b91c1c' };
+      if ((p.level || 0) >= 12) return { top: '#c084fc', side: '#a855f7', rim: '#6b21a8' };
+      return { top: '#f8fafc', side: '#dbe4ee', rim: '#94a3b8' };
+    }
+    function drawPlatformPuffs(p, rw, mesh, isOption) {
+      const pal = zonePalette(-cam.y);
+      const tint = (p.status === 'wrong') ? '#fecaca'
+        : (p.status === 'correct') ? '#bbf7d0'
+          : ((p.level || 0) >= 12) ? '#e9d5ff'
+            : pal.cloudTint;
+      const sprite = makeCloudSprite(tint);
+      const halfW = mesh.halfW, halfD = mesh.halfD;
+      const size = Math.min(130, Math.max(70, rw * 0.42));
+      const spots = [
+        [-halfW * 0.72, -halfD * 0.55, 10], [halfW * 0.72, -halfD * 0.55, 10],
+        [0, -halfD * 0.95, 14], [-halfW * 1.0, 0, 0], [halfW * 1.0, 0, 0],
+      ];
+      for (const [ox, oz, dy] of spots) {
+        drawSpriteWorld(sprite, { x: p.wx + ox, y: mesh.topY + dy - 4, z: oz }, size, 0.82);
+      }
+    }
+    function drawPlatformLabel(p, mesh) {
+      const pos = { x: p.wx, y: mesh.topY + 2, z: (mesh.halfD || 60) * 0.5 };
+      const pc = projectPoint(pos);
+      if (!pc) return;
+      const fs = Math.max(9, Math.min(20, 15 * pc.scale));
+      const text = p.isStart ? 'START (0m)' : 'TANGGA ' + (p.level || 0);
+      ctx.save();
+      ctx.font = `900 ${fs}px "Segoe UI", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = Math.max(2, fs * 0.22);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.strokeText(text, pc.x, pc.y);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(text, pc.x, pc.y);
+      ctx.restore();
+    }
+    function drawAnswerSign(p) {
+      const topY = platformTopY(p);
+      const pos = { x: p.wx, y: topY + 62, z: 0 };
+      const pc = projectPoint(pos);
+      if (!pc) return;
+      const wWorld = platformRenderWidth(p);
+      const w = Math.max(120, Math.min(W * 0.56, wWorld * pc.scale * 1.02 + 30));
+      const h = Math.max(30, Math.min(80, w * 0.235));
+      const x = pc.x - w / 2, y = pc.y - h / 2;
+      const border = p.status === 'correct' ? '#4ade80' : p.status === 'wrong' ? '#f87171' : '#fbbf24';
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.38)';
+      ctx.shadowBlur = 18;
+      ctx.shadowOffsetY = 8;
+      ctx.fillStyle = 'rgba(15,23,42,0.94)';
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, Math.min(18, h * 0.42));
+      ctx.fill();
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      ctx.strokeStyle = border;
+      ctx.lineWidth = Math.max(2, h * 0.06);
+      ctx.stroke();
+      const label = String(p.text || '');
+      let fs = Math.min(h * 0.6, 30);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let guard = 0; guard < 14; guard++) {
+        ctx.font = `800 ${fs}px "Segoe UI", sans-serif`;
+        if (fs <= 10 || ctx.measureText(label).width <= w - 24) break;
+        fs -= 1.5;
+      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, pc.x, pc.y + 1);
+      ctx.restore();
+      // panah petunjuk di permukaan atas platform
+      const pTop = projectPoint({ x: p.wx, y: topY, z: 44 });
+      if (pTop) {
+        const afs = Math.max(9, Math.min(16, 12 * pTop.scale));
+        ctx.save();
+        ctx.font = `900 ${afs}px "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(15,23,42,0.85)';
+        ctx.fillText(p.side === 'left' ? '⬅ LOMPAT KIRI' : 'LOMPAT KANAN ➡', pTop.x, pTop.y + 4);
+        ctx.restore();
+      }
+    }
     function drawPlatform(p, isOption = false) {
       if (!p) return;
-      const sx = worldToScreenX(p.wx);
-      const sy = worldToScreenY(p.wy + (p.fallY || 0));
-
-      if (sy < -150 || sy > H + 150) return;
-
+      const rel = -p.wy - (-cam.y);
+      if (Math.abs(rel) > 4200) return;
+      const center = projectGamePoint(p.wx, p.wy);
+      if (!center) return;
+      const mesh = platformMesh(p);
+      const pal = platformPalette(p);
       ctx.save();
-
-      // Determine platform style by status & altitude
-      let mainCol = '#ffffff';
-      let rimCol = '#94a3b8';
-
-      if (p.isStart) {
-        mainCol = '#fde047'; rimCol = '#ca8a04';
-      } else if (p.status === 'correct') {
-        mainCol = '#4ade80'; rimCol = '#15803d';
-      } else if (p.status === 'wrong') {
-        mainCol = '#f87171'; rimCol = '#b91c1c';
-      } else if (p.level >= 12) {
-        // Cosmic Space Pad
-        mainCol = '#c084fc'; rimCol = '#6b21a8';
-      } else {
-        // Fluffy Cloud Stair Pad
-        mainCol = '#f8fafc'; rimCol = '#64748b';
+      drawPlatformPuffs(p, mesh.rw, mesh, isOption);
+      const faces = mesh.faces.slice().sort((a, b) => (a.kind === 'top' ? 1 : 0) - (b.kind === 'top' ? 1 : 0));
+      for (const f of faces) {
+        const baseCol = f.kind === 'top' ? pal.top : f.kind === 'bottom' ? pal.rim : pal.side;
+        const k = f.kind === 'top' ? 1.0 : f.kind === 'bottom' ? 0.5 : faceBrightness(f.pts, 0.76);
+        drawPoly3(f.pts, shadeHex(baseCol, k), { stroke: '#0f172a', lineWidth: 2.4 });
       }
-
-      // Draw Fluffy Cloud Bumps underneath platform
-      ctx.fillStyle = rimCol;
-      ctx.beginPath();
-      ctx.roundRect(sx - p.w / 2, sy + 6, p.w, p.h, 16);
-      ctx.fill();
-
-      ctx.fillStyle = mainCol;
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.roundRect(sx - p.w / 2, sy, p.w, p.h, 16);
-      ctx.fill();
-      ctx.stroke();
-
-      // If this is one of the 2 active upper stair options, draw Answer Box & Left/Right prompt
-      if (isOption) {
-        const pillW = Math.max(p.w, ctx.measureText(p.text).width + 55);
-        const pillY = sy - 54;
-
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
-        ctx.strokeStyle = p.status === 'correct' ? '#4ade80' : p.status === 'wrong' ? '#f87171' : '#fbbf24';
-        ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        ctx.roundRect(sx - pillW / 2, pillY, pillW, 44, 14);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '800 22px "Segoe UI", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(p.text, sx, pillY + 29);
-
-        ctx.fillStyle = '#0f172a';
-        ctx.font = '900 13px "Segoe UI", sans-serif';
-        ctx.fillText(p.side === 'left' ? '⬅️ LOMPAT KIRI' : 'LOMPAT KANAN ➡️', sx, sy + 21);
-      } else {
-        // Visited Stair Step Label
-        ctx.fillStyle = '#0f172a';
-        ctx.font = '900 14px "Segoe UI", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(p.isStart ? 'START (0m)' : `TANGGA ${p.level} (${p.level * 100}m)`, sx, sy + 20);
-      }
-
+      if (isOption) drawAnswerSign(p);
+      else drawPlatformLabel(p, mesh);
       ctx.restore();
     }
 
-    function drawStarPou(t) {
-      const sx = worldToScreenX(star.wx);
-      const sy = worldToScreenY(star.wy);
-
-      ctx.save();
-      ctx.translate(sx, sy);
-      ctx.rotate(star.rotation);
-
-      const bounce = star.state === 'idle' ? Math.sin(t * 0.008) * 0.06 : 0;
-      ctx.scale(star.scaleX + bounce, star.scaleY - bounce);
-
-      // 5-Pointed Chubby Star Body
-      const outerR = 45;
-      const innerR = 25;
-      ctx.beginPath();
+    // --- 6.8 Karakter Star-Pou 3D (prisma bintang) ---
+    function starMesh() {
+      const outer = 45, inner = 25, halfT = 13;
+      const cosR = Math.cos(star.rotation || 0), sinR = Math.sin(star.rotation || 0);
+      const yaw = star._yaw || 0;
+      const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+      const sx = star.scaleX || 1, sy = star.scaleY || 1;
+      const cx = star.wx, cy = -star.wy - (star._bob || 0);
+      const ring = [];
       for (let i = 0; i < 10; i++) {
-        const r = i % 2 === 0 ? outerR : innerR;
-        const angle = (i * Math.PI) / 5 - Math.PI / 2;
-        const px = Math.cos(angle) * r;
-        const py = Math.sin(angle) * r;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+        const r = i % 2 === 0 ? outer : inner;
+        // Orientasi berdiri: satu ujung tajam ke atas, dua ujung tajam di bawah
+        // menjadi "kaki" bintang (bukan bertumpu pada satu ujung).
+        const a = (i * Math.PI) / 5 + Math.PI / 2;
+        let lx = Math.cos(a) * r * sx;
+        let ly = Math.sin(a) * r * sy;
+        const xr = lx * cosR - ly * sinR;
+        const yr = lx * sinR + ly * cosR;
+        ring.push({ x: cx + xr * cosY, y: cy + yr, z: -xr * sinY });
       }
-      ctx.closePath();
-
-      const grad = ctx.createRadialGradient(-8, -10, 5, 0, 0, outerR);
-      grad.addColorStop(0, '#fef08a');
-      grad.addColorStop(0.6, '#facc15');
-      grad.addColorStop(1, '#eab308');
-      ctx.fillStyle = grad;
-      ctx.fill();
-      ctx.lineWidth = 5;
-      ctx.lineJoin = 'round';
-      ctx.strokeStyle = '#0f172a';
-      ctx.stroke();
-
-      // Pou Eyes
-      if (star.expression === 'dizzy') {
+      const front = ring.map((q) => ({ x: q.x, y: q.y, z: q.z + halfT }));
+      const back = ring.map((q) => ({ x: q.x, y: q.y, z: q.z - halfT }));
+      const faces = [{ kind: 'back', pts: back.slice().reverse() }];
+      for (let i = 0; i < 10; i++) {
+        const j = (i + 1) % 10;
+        faces.push({ kind: 'side', pts: [front[i], front[j], back[j], back[i]] });
+      }
+      faces.push({ kind: 'front', pts: front });
+      return { faces, front, back };
+    }
+    function drawStarFace() {
+      const expr = star.expression || 'happy';
+      if (expr === 'dizzy') {
         ctx.font = '900 16px sans-serif';
         ctx.fillStyle = '#0f172a';
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillText('✖   ✖', 0, -2);
       } else {
         ctx.fillStyle = '#ffffff';
@@ -894,49 +1310,133 @@
         ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.ellipse(-10, -6, 7, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
         ctx.beginPath(); ctx.ellipse(10, -6, 7, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-
         ctx.fillStyle = '#0f172a';
         ctx.beginPath(); ctx.arc(-10, -6, 3.8, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(10, -6, 3.8, 0, Math.PI * 2); ctx.fill();
-
         ctx.fillStyle = '#ffffff';
         ctx.beginPath(); ctx.arc(-11.5, -8, 1.5, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(8.5, -8, 1.5, 0, Math.PI * 2); ctx.fill();
       }
-
-      // Blush Cheeks
-      ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
+      ctx.fillStyle = 'rgba(244,63,94,0.45)';
       ctx.beginPath(); ctx.ellipse(-18, 4, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.ellipse(18, 4, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
-
-      // Pou Mouth
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      if (star.expression === 'jump') {
+      if (expr === 'jump') {
         ctx.fillStyle = '#991b1b';
         ctx.arc(0, 8, 5, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
-      } else if (star.expression === 'win') {
+      } else if (expr === 'win') {
         ctx.fillStyle = '#ef4444';
         ctx.arc(0, 5, 9, 0, Math.PI);
         ctx.fill(); ctx.stroke();
-      } else if (star.expression === 'dizzy') {
+      } else if (expr === 'dizzy') {
         ctx.arc(0, 13, 6, Math.PI, 0);
         ctx.stroke();
       } else {
         ctx.arc(0, 4, 7, 0.15 * Math.PI, 0.85 * Math.PI);
         ctx.stroke();
       }
-
+    }
+    function drawStarPou(t) {
+      const bob = star.state === 'idle' ? Math.sin(t * 0.008) * 2.2 : 0;
+      star._bob = bob;
+      const mesh = starMesh();
+      const center = projectGamePoint(star.wx, star.wy + bob);
+      if (!center) return;
+      // shadow lembut di pijakan
+      if (currentBasePlat && (star.state === 'idle' || star.state === 'celebrating')) {
+        const topY = platformTopY(currentBasePlat);
+        const sh = projectPoint({ x: star.wx, y: topY, z: 0 });
+        if (sh) {
+          const sw = 62 * sh.scale, shh = 18 * sh.scale;
+          ctx.save();
+          ctx.globalAlpha = 0.28;
+          const grad = ctx.createRadialGradient(sh.x, sh.y, 1, sh.x, sh.y, Math.max(4, sw));
+          grad.addColorStop(0, 'rgba(2,6,23,0.9)');
+          grad.addColorStop(1, 'rgba(2,6,23,0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.ellipse(sh.x, sh.y, Math.max(4, sw), Math.max(2, shh), 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+      const frontScr = projectPoly3(mesh.front);
+      const faces = mesh.faces;
+      for (const f of faces) {
+        if (f.kind === 'back') {
+          drawPoly3(f.pts, shadeHex('#eab308', 0.62), { stroke: '#0f172a', lineWidth: 3 });
+        } else if (f.kind === 'side') {
+          drawPoly3(f.pts, shadeHex('#facc15', faceBrightness(f.pts, 0.72)), { stroke: '#0f172a', lineWidth: 2.6 });
+        }
+      }
+      if (frontScr) {
+        fillPolyScreen(frontScr, '#facc15', '#0f172a', 3.4);
+        // highlight lembut di muka depan
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(frontScr[0].x, frontScr[0].y);
+        for (let i = 1; i < frontScr.length; i++) ctx.lineTo(frontScr[i].x, frontScr[i].y);
+        ctx.closePath();
+        ctx.clip();
+        const pc = center;
+        const rg = ctx.createRadialGradient(pc.x - 24, pc.y - 30, 4, pc.x - 8, pc.y - 8, 70);
+        rg.addColorStop(0, 'rgba(254,249,195,0.95)');
+        rg.addColorStop(1, 'rgba(254,249,195,0)');
+        ctx.fillStyle = rg;
+        ctx.fillRect(pc.x - 90, pc.y - 90, 180, 180);
+        ctx.restore();
+      }
+      const facePc = projectPoint({ x: star.wx, y: -star.wy - bob, z: 14 });
+      if (!facePc) return;
+      ctx.save();
+      ctx.translate(facePc.x, facePc.y);
+      ctx.rotate(star.rotation || 0);
+      ctx.scale(facePc.scale, facePc.scale);
+      drawStarFace();
       ctx.restore();
     }
 
+    // --- 6.9 Panduan lompat 3D ---
+    function quadBezier3(a, b, c, u) {
+      const it = 1 - u;
+      return {
+        x: it * it * a.x + 2 * it * u * b.x + u * u * c.x,
+        y: it * it * a.y + 2 * it * u * b.y + u * u * c.y,
+        z: it * it * a.z + 2 * it * u * b.z + u * u * c.z,
+      };
+    }
+    function drawJumpGuides() {
+      if (!(currentBasePlat && leftOptionPlat && rightOptionPlat && star.state === 'idle')) return;
+      ctx.save();
+      ctx.setLineDash([8, 8]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(255,255,255,0.36)';
+      for (const opt of [leftOptionPlat, rightOptionPlat]) {
+        const from = { x: currentBasePlat.wx, y: platformTopY(currentBasePlat) + 6, z: 0 };
+        const to = { x: opt.wx, y: platformTopY(opt) + 6, z: 0 };
+        const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 + 130, z: 70 };
+        ctx.beginPath();
+        let started = false;
+        for (let i = 0; i <= 16; i++) {
+          const q = projectPoint(quadBezier3(from, mid, to, i / 16));
+          if (!q) { started = false; continue; }
+          if (!started) { ctx.moveTo(q.x, q.y); started = true; } else ctx.lineTo(q.x, q.y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // --- 6.10 Partikel, teks melayang, awan depan & vignette ---
     function spawnConfetti(wx, wy, baseColor) {
       const colors = [baseColor, '#fbbf24', '#38bdf8', '#f472b6', '#ffffff'];
       for (let i = 0; i < 30; i++) {
         particles.push({
           wx, wy,
+          wz: (Math.random() - 0.5) * 150,
           vx: (Math.random() - 0.5) * 12,
           vy: -Math.random() * 10 - 2,
           size: 6 + Math.random() * 6,
@@ -945,48 +1445,138 @@
         });
       }
     }
+    function drawParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.wx += pt.vx;
+        pt.wy += pt.vy;
+        pt.vy += 0.35;
+        pt.life -= 0.022;
+        if (pt.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        const pc = projectPoint({ x: pt.wx, y: -pt.wy, z: pt.wz || 0 });
+        if (!pc) continue;
+        const sz = Math.max(2, pt.size * pc.scale * 0.55);
+        ctx.globalAlpha = pt.life;
+        ctx.fillStyle = pt.color;
+        ctx.fillRect(pc.x - sz / 2, pc.y - sz / 2, sz, sz);
+        ctx.globalAlpha = 1;
+      }
+    }
+    function drawFloatingTexts() {
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.wy -= 1.8;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) {
+          floatingTexts.splice(i, 1);
+          continue;
+        }
+        const pc = projectPoint({ x: ft.wx, y: -ft.wy, z: 0 });
+        if (!pc) continue;
+        const fs = Math.max(14, Math.min(42, 26 * pc.scale * 0.9));
+        ctx.save();
+        ctx.globalAlpha = ft.alpha;
+        ctx.font = `900 ${fs}px "Segoe UI", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = Math.max(3, fs * 0.16);
+        ctx.strokeStyle = '#0f172a';
+        ctx.strokeText(ft.text, pc.x, pc.y);
+        ctx.fillStyle = ft.color;
+        ctx.fillText(ft.text, pc.x, pc.y);
+        ctx.restore();
+      }
+    }
+    function drawForegroundClouds() {
+      const pal = zonePalette(-cam.y);
+      const sprite = makeCloudSprite(pal.cloudTint === '#ffffff' ? '#f8fafc' : pal.cloudTint);
+      for (const c of fgClouds) {
+        c.offsetX += c.speed;
+        const limit = W * 1.2;
+        if (c.offsetX > limit) c.offsetX = -limit;
+        if (c.offsetX < -limit) c.offsetX = limit;
+        const p3 = {
+          x: cam.x + c.offsetX,
+          y: camera3D.eye.y + c.offsetY,
+          z: camera3D.eye.z - c.zOff,
+        };
+        drawSpriteWorld(sprite, p3, 95 * c.scale, 0.15);
+      }
+    }
+    function drawVignette() {
+      const grad = ctx.createRadialGradient(W / 2, H * 0.55, Math.min(W, H) * 0.34, W / 2, H * 0.55, Math.max(W, H) * 0.8);
+      grad.addColorStop(0, 'rgba(2,6,23,0)');
+      grad.addColorStop(1, 'rgba(2,6,23,0.4)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+    }
 
-    // --- 8. MAIN ANIMATION LOOP ---
+    // --- 6.11 Loop utama ---
+    // Menggambar satu scene penuh ke viewport aktif (W x H) memakai state global.
+    // opts.zoom dipakai mode penonton (admin) untuk zoom per kamera pemain.
+    function drawWorldScene(t, opts) {
+      const o = opts || {};
+      updateCameraRig(t, o.zoom);
+
+      // 1. Langit, bintang, planet & awan latar
+      drawSkyAndEnvironment(t);
+
+      // 2. Pulau bumi (saat masih rendah)
+      drawGroundIsland();
+
+      // 3. Panduan lompat
+      drawJumpGuides();
+
+      // 4. Platform (urut jauh -> dekat)
+      const plats = [];
+      for (const p of letitedPlatforms) plats.push(p);
+      if (leftOptionPlat) plats.push(leftOptionPlat);
+      if (rightOptionPlat) plats.push(rightOptionPlat);
+      const depthOf = (p) => {
+        const q = projectGamePoint(p.wx, p.wy);
+        return q ? q.depth : -1;
+      };
+      for (const p of sortByDepth(plats, depthOf)) {
+        drawPlatform(p, p === leftOptionPlat || p === rightOptionPlat);
+      }
+
+      // 5. Karakter
+      drawStarPou(t);
+
+      // 6. Konfeti
+      drawParticles();
+
+      // 7. Teks melayang
+      drawFloatingTexts();
+
+      // 8. Awan depan + vignette
+      drawForegroundClouds();
+      drawVignette();
+    }
+
     function animate(t) {
       requestAnimationFrame(animate);
+
+      // Mode penonton admin: renderer yang sama dipakai untuk banyak kamera tim.
+      if (window.__spectator && typeof window.__spectator.frame === 'function') {
+        window.__spectator.frame(t);
+        return;
+      }
+
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
       // Smooth Camera Tracking (Follows current climbed stair)
       cam.x += (cam.targetX - cam.x) * 0.08;
       cam.y += (cam.targetY - cam.y) * 0.08;
+      updateCameraRig(t);
 
-      // 1. Draw Dynamic Sky, Ground, Clouds & Space
-      drawSkyAndEnvironment(t);
-
-      // 2. Draw Dashed Jump Trajectory Guides from current base to next stairs
-      if (currentBasePlat && leftOptionPlat && rightOptionPlat && star.state === 'idle') {
-        const bx = worldToScreenX(currentBasePlat.wx);
-        const by = worldToScreenY(currentBasePlat.wy);
-        const lx = worldToScreenX(leftOptionPlat.wx);
-        const ly = worldToScreenY(leftOptionPlat.wy);
-        const rx = worldToScreenX(rightOptionPlat.wx);
-        const ry = worldToScreenY(rightOptionPlat.wy);
-
-        ctx.save();
-        ctx.setLineDash([8, 8]);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(bx, by);
-        ctx.quadraticCurveTo(lx, by - 170, lx, ly);
-        ctx.moveTo(bx, by);
-        ctx.quadraticCurveTo(rx, by - 170, rx, ry);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // 3. Draw Past Climbed Stairs & Current Next Options
-      letitedPlatforms.forEach(p => drawPlatform(p, false));
-      drawPlatform(leftOptionPlat, true);
-      drawPlatform(rightOptionPlat, true);
-
-      // 4. Update Star-Pou Jump / Fall Physics
+      // Update Star-Pou Jump / Fall Physics
       star.scaleX += (1 - star.scaleX) * 0.15;
       star.scaleY += (1 - star.scaleY) * 0.15;
+      star._yaw = Math.sin(t * 0.0016) * 0.14;
 
       if (star.state === 'jumping') {
         star.progress += 0.055;
@@ -1011,51 +1601,13 @@
         if (star.chosenPlat) star.chosenPlat.fallY += Math.max(0, star.vy * 0.9);
       }
 
-      // 5. Draw Star-Pou
-      drawStarPou(t);
-
-      // 6. Update & Draw Confetti Particles
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const pt = particles[i];
-        pt.wx += pt.vx;
-        pt.wy += pt.vy;
-        pt.vy += 0.35;
-        pt.life -= 0.022;
-        if (pt.life <= 0) {
-          particles.splice(i, 1);
-          continue;
-        }
-        ctx.fillStyle = pt.color;
-        ctx.globalAlpha = pt.life;
-        ctx.fillRect(worldToScreenX(pt.wx), worldToScreenY(pt.wy), pt.size, pt.size);
-        ctx.globalAlpha = 1;
-      }
-
-      // 7. Update & Draw Floating Texts
-      for (let i = floatingTexts.length - 1; i >= 0; i--) {
-        const ft = floatingTexts[i];
-        ft.wy -= 1.8;
-        ft.alpha -= 0.02;
-        if (ft.alpha <= 0) {
-          floatingTexts.splice(i, 1);
-          continue;
-        }
-        ctx.save();
-        ctx.globalAlpha = ft.alpha;
-        ctx.font = '900 28px "Segoe UI", sans-serif';
-        ctx.fillStyle = ft.color;
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 5;
-        ctx.textAlign = 'center';
-        const sx = worldToScreenX(ft.wx);
-        const sy = worldToScreenY(ft.wy);
-        ctx.strokeText(ft.text, sx, sy);
-        ctx.fillText(ft.text, sx, sy);
-        ctx.restore();
-      }
+      // 1-8. Scene 3D: langit, pulau, panduan, platform, karakter, efek, vignette
+      drawWorldScene(t);
     }
 
+    if (typeof updateCameraRig === 'function') updateCameraRig(0);
     requestAnimationFrame(animate);
   </script>
+
 </body>
 </html>

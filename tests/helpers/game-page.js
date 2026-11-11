@@ -76,25 +76,63 @@ class FakeClock {
 function createCanvasContext(calls) {
   const record = (name) => (...args) => { calls[name] = (calls[name] || 0) + 1; return args; };
   const gradient = () => ({ addColorStop: record('addColorStop') });
-  return {
+  // Paint-state log: unlike the plain call counters this keeps the *style* that
+  // was active for each paint, which is how 3D tests assert zone/status colours
+  // without hard-coding a specific shadeHex() output.
+  const log = { fills: [], strokes: [], texts: [], transforms: [], lineDashes: [] };
+  const ctx = {
     calls,
+    _log: log,
     canvas: null,
     fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, font: '10px sans-serif',
     textAlign: 'left', textBaseline: 'alphabetic', globalAlpha: 1, lineJoin: 'miter',
-    shadowColor: 'transparent', shadowBlur: 0, lineCap: 'butt', globalCompositeOperation: 'source-over',
+    lineCap: 'butt', miterLimit: 10, filter: 'none', imageSmoothingEnabled: true,
+    lineDashOffset: 0, shadowColor: 'transparent', shadowBlur: 0,
+    shadowOffsetX: 0, shadowOffsetY: 0, globalCompositeOperation: 'source-over',
     save: record('save'), restore: record('restore'),
     beginPath: record('beginPath'), closePath: record('closePath'),
     moveTo: record('moveTo'), lineTo: record('lineTo'),
     quadraticCurveTo: record('quadraticCurveTo'), bezierCurveTo: record('bezierCurveTo'),
     arc: record('arc'), arcTo: record('arcTo'), ellipse: record('ellipse'), rect: record('rect'),
-    roundRect: record('roundRect'), fill: record('fill'), stroke: record('stroke'), clip: record('clip'),
-    fillRect: record('fillRect'), strokeRect: record('strokeRect'), clearRect: record('clearRect'),
-    fillText: record('fillText'), strokeText: record('strokeText'),
+    roundRect: record('roundRect'), clip: record('clip'),
+    fill(...args) {
+      record('fill')(...args);
+      log.fills.push({ style: ctx.fillStyle, globalAlpha: ctx.globalAlpha });
+      return undefined;
+    },
+    stroke(...args) {
+      record('stroke')(...args);
+      log.strokes.push({ style: ctx.strokeStyle, lineWidth: ctx.lineWidth, globalAlpha: ctx.globalAlpha });
+      return undefined;
+    },
+    fillRect(...args) {
+      record('fillRect')(...args);
+      log.fills.push({ style: ctx.fillStyle, globalAlpha: ctx.globalAlpha });
+      return undefined;
+    },
+    strokeRect: record('strokeRect'), clearRect: record('clearRect'),
+    fillText(text, x, y, maxWidth) {
+      record('fillText')(text, x, y, maxWidth);
+      log.texts.push({ text: String(text), style: ctx.fillStyle, font: String(ctx.font), textAlign: ctx.textAlign, globalAlpha: ctx.globalAlpha });
+      return undefined;
+    },
+    strokeText: record('strokeText'),
     translate: record('translate'), rotate: record('rotate'), scale: record('scale'),
-    setTransform: record('setTransform'), transform: record('transform'), resetTransform: record('resetTransform'),
-    setLineDash: record('setLineDash'), getLineDash: () => [],
+    setTransform(a, b, c, d, e, f) {
+      record('setTransform')(a, b, c, d, e, f);
+      log.transforms.push([a, b, c, d, e, f]);
+      return undefined;
+    },
+    transform: record('transform'), resetTransform: record('resetTransform'),
+    setLineDash(segments) {
+      record('setLineDash')(segments);
+      log.lineDashes.push(Array.isArray(segments) ? [...segments] : segments);
+      return undefined;
+    },
+    getLineDash: () => [],
     createLinearGradient: (...args) => { record('createLinearGradient')(...args); return gradient(); },
     createRadialGradient: (...args) => { record('createRadialGradient')(...args); return gradient(); },
+    createConicGradient: (...args) => { record('createConicGradient')(...args); return gradient(); },
     createPattern: () => null,
     measureText: (text) => { record('measureText')(text); return { width: String(text).length * 10 }; },
     drawImage: record('drawImage'),
@@ -102,15 +140,41 @@ function createCanvasContext(calls) {
     getImageData: () => ({ data: new Uint8ClampedArray(4) }),
     createImageData: () => ({ data: new Uint8ClampedArray(4) }),
   };
+  return ctx;
 }
 
 function createElement(doc, tag = 'div', id = '') {
+  // Real class bookkeeping: the spectator mode toggles
+  // `document.body.classList.add('spectate-mode')`, so `classList` must behave
+  // like the browser API instead of being a no-op. `className` stays in sync
+  // in both directions.
+  const classSet = new Set();
+  const classList = {
+    add(...names) { for (const n of names) if (String(n)) classSet.add(String(n)); },
+    remove(...names) { for (const n of names) classSet.delete(String(n)); },
+    toggle(name, force) {
+      const key = String(name);
+      const on = force === undefined ? !classSet.has(key) : !!force;
+      if (on) classSet.add(key); else classSet.delete(key);
+      return on;
+    },
+    replace(from, to) {
+      if (!classSet.has(String(from))) return false;
+      classSet.delete(String(from));
+      classSet.add(String(to));
+      return true;
+    },
+    contains(name) { return classSet.has(String(name)); },
+    item(index) { return [...classSet][index] ?? null; },
+    get length() { return classSet.size; },
+    get value() { return [...classSet].join(' '); },
+    toString() { return [...classSet].join(' '); },
+  };
   const el = {
     tagName: String(tag).toUpperCase(),
     nodeName: String(tag).toUpperCase(),
     nodeType: 1,
     id,
-    className: '',
     style: {},
     dataset: {},
     children: [],
@@ -126,9 +190,7 @@ function createElement(doc, tag = 'div', id = '') {
     height: 0,
     _listeners: {},
     _rect: null,
-    classList: {
-      add() {}, remove() {}, toggle() {}, contains() { return false; },
-    },
+    classList,
     appendChild(child) {
       child.parentNode = el;
       el.children.push(child);
@@ -167,14 +229,30 @@ function createElement(doc, tag = 'div', id = '') {
     contains() { return false; },
   };
 
+  // `className` is the canonical string form of the class set.
+  Object.defineProperty(el, 'className', {
+    get() { return [...classSet].join(' '); },
+    set(value) {
+      classSet.clear();
+      for (const name of String(value || '').split(/\s+/)) if (name) classSet.add(name);
+    },
+    configurable: true,
+    enumerable: true,
+  });
+
   if (el.tagName === 'CANVAS') {
     const calls = {};
     const ctx = createCanvasContext(calls);
     ctx.canvas = el;
     el._ctx = ctx;
     el._ctxCalls = calls;
+    el._ctxLog = ctx._log;
     el.getContext = (kind) => (kind === '2d' ? ctx : null);
     el.toDataURL = () => 'data:image/png;base64,';
+    // The renderer reads clientWidth/clientHeight for sprite caches in some
+    // browsers; keep them in sync with the backing-store size.
+    Object.defineProperty(el, 'clientWidth', { get() { return el.width; }, configurable: true });
+    Object.defineProperty(el, 'clientHeight', { get() { return el.height; }, configurable: true });
   }
   return el;
 }
@@ -394,6 +472,21 @@ export function loadGamePage(file, options = {}) {
     decodeURIComponent,
     performance: { now: () => clock.now - 1700000000000 },
   };
+  // The 3D renderer caps the backing store at DPR 2; tests run at DPR 1 so
+  // canvas.width === W (documented sandbox behaviour, see tests/README.md).
+  sandbox.devicePixelRatio = options.devicePixelRatio ?? 1;
+  sandbox.screen = {
+    width: options.innerWidth ?? 1280,
+    height: options.innerHeight ?? 720,
+    devicePixelRatio: sandbox.devicePixelRatio,
+  };
+  sandbox.OffscreenCanvas = function OffscreenCanvas(width, height) {
+    const el = createElement(document, 'canvas');
+    el.width = Number(width) || 0;
+    el.height = Number(height) || 0;
+    el._isOffscreen = true;
+    return el;
+  };
   sandbox.window = sandbox;
   sandbox.self = sandbox;
 
@@ -470,9 +563,15 @@ export function loadGamePage(file, options = {}) {
     ctxCalls() {
       return document.getElementById('gameCanvas')._ctxCalls;
     },
+    ctxLog() {
+      return document.getElementById('gameCanvas')._ctxLog;
+    },
     resetCtxCalls() {
-      const calls = document.getElementById('gameCanvas')._ctxCalls;
+      const canvas = document.getElementById('gameCanvas');
+      const calls = canvas._ctxCalls;
       for (const key of Object.keys(calls)) delete calls[key];
+      const log = canvas._ctxLog;
+      if (log) for (const key of Object.keys(log)) log[key].length = 0;
     },
     lastWs() {
       return wsInstances[wsInstances.length - 1] || null;
