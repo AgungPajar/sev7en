@@ -8,7 +8,10 @@
     "start": "bun run vs-server/server.bun.js",
     "dev": "bun --watch vs-server/server.bun.js",
     "start:node": "node vs-server/server.js",
-    "test:bun": "bun test vs-server/server.bun.test.js"
+    "test:bun": "bun test vs-server/server.bun.test.js",
+    "test": "node --test --test-isolation=none tests/game-core.test.js tests/game-3d.test.js tests/game-vs-client.test.js tests/site-structure.test.js tests/landing.test.js",
+    "test:vs-server": "node --test --test-isolation=none tests/vs-server.test.js",
+    "sync:solo": "node tools/sync-solo.mjs"
   },
   "engines": {
     "node": ">=22"

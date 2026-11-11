@@ -48,6 +48,12 @@ mencapai setinggi mungkin sebelum waktu habis.
 
 ## 2. Tampilan saat bermain
 
+Sejak konversi 3D, dunia permainan digambar sebagai **pemandangan 3D** dari kamera
+perspektif: pulau bumi di bawah, tangga awan ber-volume yang menjulang ke atas, dan
+langit yang berubah sesuai ketinggian. Karakter Star-Pou tampil sebagai bintang
+kuning ber-volume (prisma bintang) dengan mata dan mulut yang mengikuti ekspresinya.
+HUD dan kontrol **tidak berubah** — hanya lapisan gambarnya yang berubah.
+
 ### HUD atas
 
 - **Nama tim** dan **skor**.
@@ -62,6 +68,20 @@ mencapai setinggi mungkin sebelum waktu habis.
 - Emoji dan teks soal bahasa Inggris.
 - Dua platform di atas karakter adalah dua pilihan jawaban: satu benar, satu salah,
   posisinya diacak setiap soal.
+- Papan tanda jawaban digambar sebagai billboard 3D di atas platform. Di layar
+  sempit, lebar papan dibatasi agar dua pilihan tetap muat.
+
+### Dunia 3D
+
+- **Pulau bumi** (piringan rumput low-poly dengan bukit dan pohon kecil) hanya
+  terlihat saat permainan masih rendah; makin tinggi, pulau itu tertinggal di bawah.
+- **Tangga awan**: tiap platform berupa slab 3D dengan puff awan di tepinya, label
+  `TANGGA n` di permukaan atas, dan warna berbeda untuk start/benar/salah.
+- **Kamera** berada sedikit di atas pemain dan bergoyang halus (orbit kecil). Kamera
+  otomatis naik mengikuti platform terakhir yang benar; jaraknya menyesuaikan ukuran
+  jendela supaya dua pilihan jawaban selalu muat.
+- **Panduan lompat**: garis putus-putus melengkung dari platform saat ini ke kedua
+  pilihan, hanya muncul saat karakter siap melompat.
 
 ### Kontrol
 
@@ -71,7 +91,8 @@ mencapai setinggi mungkin sebelum waktu habis.
 | Lompat ke pilihan kanan | `→` atau `D` | Klik/tap separuh kanan layar |
 
 Kontrol hanya aktif saat karakter dalam keadaan **idle**. Selama melompat,
-merayakan, atau jatuh, input tambahan diabaikan.
+merayakan, atau jatuh, input tambahan diabaikan. Perilaku kontrol ini sama persis
+dengan versi 2D.
 
 ---
 
@@ -104,6 +125,8 @@ Detail angka dan rumus ada di [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 
 ## 4. Zona ketinggian
 
+Badge zona di HUD berubah mengikuti `floorLevel` (jumlah tangga):
+
 | Tangga | Meter | Badge |
 |---|---|---|
 | 0–3 | 0–300 m | 🌱 Bumi & Rumput |
@@ -111,8 +134,12 @@ Detail angka dan rumus ada di [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 | 8–11 | 800–1.100 m | 🌇 Atmosfer Senja |
 | 12+ | 1.200 m+ | 🚀 Luar Angkasa! |
 
-Latar langit berubah mulus mengikuti ketinggian kamera, dari biru siang, senja,
-hingga luar angkasa berbintang.
+Latar langit 3D berubah mulus mengikuti **ketinggian kamera**, bukan langsung per
+tangga. Di zona bumi, pulau rumput terlihat di bawah; awan latar berwarna putih.
+Memasuki senja, awan menguning-oranye dan bintang mulai muncul. Di luar angkasa,
+langit menjadi gelap, bintang berkelip, bulan dan planet bercincin tampil, dan pulau
+bumi sudah jauh di bawah. Ambang perubahan langit dan warna tiap zona dijelaskan di
+[10 · Renderer 3D](10-renderer-3d.md).
 
 ---
 

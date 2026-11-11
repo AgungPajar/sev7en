@@ -27,22 +27,61 @@ const team = (id, name, extra = {}) => ({ id, name, score: 0, floor: 0, streak: 
 const room = (teams = [], extra = {}) => ({ code: 'ABC123', materi: 'all', duration: 180, status: 'lobby', teams, ...extra });
 
 describe('VS client — connection URL', () => {
-  it('uses the local server for localhost', () => {
-    assert.equal(load().get('VS').getWsUrl(), 'ws://localhost:3001/ws');
+  // README "Alur koneksi WebSocket & reconnect": same-origin first, then the
+  // local VS server (:3001) for file:// / a separate static server, then the
+  // host:3001 and nginx /vs-ws fallbacks in production.
+  it('prefers the same-origin socket on localhost, then the local VS server', () => {
+    const page = load();
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), [
+      'ws://localhost:8080/ws',
+      'ws://localhost:3001/ws',
+    ]);
+    assert.equal(page.get('VS').getWsUrl(), 'ws://localhost:8080/ws');
   });
 
-  it('uses the local server for 127.0.0.1', () => {
-    assert.equal(load({ hostname: '127.0.0.1' }).get('VS').getWsUrl(), 'ws://localhost:3001/ws');
+  it('prefers the same-origin socket on 127.0.0.1, then the local VS server', () => {
+    const page = load({ hostname: '127.0.0.1', host: '127.0.0.1:8080' });
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), [
+      'ws://127.0.0.1:8080/ws',
+      'ws://localhost:3001/ws',
+    ]);
   });
 
   it('uses /vs-ws over https in production', () => {
-    const page = load({ hostname: 'sev7en.cerap.web.id', protocol: 'https:', origin: 'https://sev7en.cerap.web.id' });
+    const page = load({
+      hostname: 'sev7en.cerap.web.id',
+      host: 'sev7en.cerap.web.id',
+      port: '',
+      protocol: 'https:',
+      origin: 'https://sev7en.cerap.web.id',
+    });
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), ['wss://sev7en.cerap.web.id/vs-ws']);
     assert.equal(page.get('VS').getWsUrl(), 'wss://sev7en.cerap.web.id/vs-ws');
   });
 
   it('uses /vs-ws over http in production', () => {
-    const page = load({ hostname: 'sev7en.cerap.web.id', protocol: 'http:', origin: 'http://sev7en.cerap.web.id' });
+    const page = load({
+      hostname: 'sev7en.cerap.web.id',
+      host: 'sev7en.cerap.web.id',
+      port: '',
+      protocol: 'http:',
+      origin: 'http://sev7en.cerap.web.id',
+    });
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), ['ws://sev7en.cerap.web.id/vs-ws']);
     assert.equal(page.get('VS').getWsUrl(), 'ws://sev7en.cerap.web.id/vs-ws');
+  });
+
+  it('tries the same-origin socket then /vs-ws for a LAN page', () => {
+    const page = load({ hostname: '192.168.1.5', host: '192.168.1.5:3001', port: '3001' });
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), [
+      'ws://192.168.1.5:3001/ws',
+      'ws://192.168.1.5/vs-ws',
+    ]);
+  });
+
+  it('falls back to the local VS server when opened from file://', () => {
+    const page = load({ protocol: 'file:', hostname: '', host: '', port: '', origin: 'null' });
+    assert.deepEqual(plain(page.get('VS').getWsUrls()), ['ws://localhost:3001/ws']);
   });
 });
 
@@ -51,7 +90,7 @@ describe('VS client — vsConnect()', () => {
     const page = load();
     page.call('vsConnect');
     assert.equal(page.wsInstances.length, 1);
-    assert.equal(page.lastWs().url, 'ws://localhost:3001/ws');
+    assert.equal(page.lastWs().url, 'ws://localhost:8080/ws');
   });
 
   it('does not open a second socket while the current one is open', () => {
@@ -74,11 +113,12 @@ describe('VS client — vsConnect()', () => {
     assert.equal(page.wsInstances.length, 2);
   });
 
-  it('does not reconnect when the VS session is not enabled', () => {
+  it('does not reconnect once the room code is gone', () => {
     const page = load();
     const ws = openSocket(page);
     VS(page).enabled = false;
-    VS(page).code = 'ABC123';
+    VS(page).code = null;
+    VS(page).teamId = null;
     ws.close();
     page.advance(5000);
     assert.equal(page.wsInstances.length, 1);
@@ -473,7 +513,7 @@ describe('VS client — join room', () => {
     assert.deepEqual(sentJson(ws), { type: 'join_room', code: 'ABC123', teamName: 'Tim A' });
   });
 
-  it('re-enables the button after 4 s without a response', () => {
+  it('re-enables the button after the 12 s safety timeout without a response', () => {
     const page = load();
     page.el('vs-join-code').value = 'ABC123';
     page.el('vs-join-name').value = 'Tim A';
@@ -483,8 +523,10 @@ describe('VS client — join room', () => {
     ws.open();
     page.advance(300 + 200);
     assert.equal(ws.sent.length, 1);
-    assert.equal(btn.disabled, true);
+    assert.equal(btn.disabled, true, 'button stays disabled while waiting for the server');
     page.advance(4000);
+    assert.equal(btn.disabled, true, '4 s is shorter than the shipped 12 s safety guard');
+    page.advance(8000);
     assert.equal(btn.textContent, 'Join Lobby');
     assert.equal(btn.disabled, false);
   });

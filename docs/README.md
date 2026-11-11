@@ -7,8 +7,10 @@ game kuis Bahasa Inggris **Sev7en Club**. Game terdiri dari dua mode:
 - **Mabar / VS** — maksimal **10 tim** bertanding lewat kode room 6 karakter, dengan
   leaderboard live.
 
-> Catatan status: folder `tests/` sedang dalam pengerjaan (WIP) dan tidak dibahas
-> di dokumentasi ini. Dokumentasi ini juga tidak mengubah kode tes.
+> Catatan status: world game kini dirender dalam **3D software** (Canvas 2D,
+> tanpa WebGL/dependency) — lihat [10 · Renderer 3D](10-renderer-3d.md). Gameplay,
+> skor, HUD, dan protokol VS tidak berubah. Suite unit test Node `tests/` lengkap;
+> cara menjalankan dan cakupannya ada di [tests/README.md](../tests/README.md).
 
 ---
 
@@ -23,8 +25,9 @@ game kuis Bahasa Inggris **Sev7en Club**. Game terdiri dari dua mode:
 | [05 · Menambah Soal](05-menambah-soal.md) | Struktur bank soal, cara menambah, topik baru, checklist | Developer / guru |
 | [06 · Mekanik & Skor](06-mekanik-dan-skor.md) | Rumus poin, streak, zona ketinggian, timer | Semua |
 | [07 · Deploy VPS](07-deploy-vps.md) | PM2, Nginx, WSS, environment, verifikasi | DevOps / maintainer |
-| [08 · Arsitektur & Protokol](08-arsitektur-dan-protokol.md) | Peta file, model data, pesan WebSocket | Developer |
+| [08 · Arsitektur & Protokol](08-arsitektur-dan-protokol.md) | Peta file, model data, pesan WebSocket, rendering klien | Developer |
 | [09 · Troubleshooting & FAQ](09-troubleshooting-faq.md) | Daftar error, gejala, solusi, pertanyaan umum | Semua |
+| [10 · Renderer 3D](10-renderer-3d.md) | Renderer 3D software: kamera, proyeksi, zona, geometri, performa | Developer |
 
 ---
 
@@ -91,9 +94,10 @@ sev7en/
 ├── star_pou_vs.html            # Duplikat lama game.html (harus identik)
 ├── admin/index.html            # Panel admin
 ├── vs-server/                  # Server WebSocket (Bun native / Node + ws)
+├── tools/                      # Spesifikasi renderer 3D + harness screenshot
 ├── Dockerfile                  # Image produksi (Bun alpine)
 ├── docs/                       # Dokumentasi ini
-└── tests/                      # WIP — tidak dibahas di sini
+└── tests/                      # Unit test Node (node:test)
 ```
 
 Mulai dari [01 · Mulai Cepat](01-mulai-cepat.md) jika baru pertama kali menjalankan

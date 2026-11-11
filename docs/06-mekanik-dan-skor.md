@@ -4,6 +4,10 @@ Dokumen ini merangkum aturan permainan yang berlaku di mode solo maupun mabar.
 Semua perhitungan berjalan di browser; server mabar hanya menyimpan dan
 mengurutkan skor yang dikirim.
 
+> Catatan: konversi tampilan game dari Canvas 2D ke renderer 3D **tidak mengubah
+> satu pun** angka, rumus, timing, atau aturan di dokumen ini. Kedalaman visual
+> hanya memengaruhi lapisan gambar (lihat [10 · Renderer 3D](10-renderer-3d.md)).
+
 ---
 
 ## 1. Siklus permainan

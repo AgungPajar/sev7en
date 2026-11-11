@@ -10,7 +10,7 @@ peta file, model data, siklus room, dan protokol WebSocket.
 | File | Tanggung jawab |
 |---|---|
 | `index.html` | Landing, modal join, redirect ke `game.html` |
-| `game.html` | Bank soal, engine game solo, client mabar (VS) |
+| `game.html` | Bank soal, engine game solo, renderer 3D software, client mabar (VS) |
 | `star_pou_sky_climber.html` | Versi solo tanpa blok VS |
 | `star_pou_vs.html` | Duplikat lama `game.html` (identik saat ini) |
 | `admin/index.html` | UI host: buat room, lobby, mulai, leaderboard |
@@ -18,6 +18,9 @@ peta file, model data, siklus room, dan protokol WebSocket.
 | `vs-server/ecosystem.config.cjs` | Konfigurasi PM2 |
 | `nginx-vs-snippet.conf` | Contoh proxy WebSocket (lihat catatan path di deploy) |
 | `deploy-vs.ps1` | Skrip deploy lama/legacy |
+| `tools/3d-engine-spec.md` | Spesifikasi kerja renderer 3D (internal) |
+| `tools/capture3d.mjs` | Harness screenshot Edge headless + CDP untuk verifikasi visual |
+| `tools/sync-solo.mjs` | Membangun `star_pou_sky_climber.html` + salinan `star_pou_vs.html` dari `game.html` |
 | `docs/` | Dokumentasi ini |
 
 Arsitektur bersifat **static frontend + satu proses Node**. Tidak ada database,
@@ -47,7 +50,73 @@ Browser tim 10─┘                        └───────────
 
 ---
 
-## 3. Model data
+## 3. Rendering klien (3D)
+
+Tampilan game memakai renderer 3D **software** di Canvas 2D: proyeksi perspektif,
+painter's algorithm, dan flat shading dihitung di JavaScript, tanpa WebGL/three.js.
+Semua kode renderer ada di dalam `game.html` (satu file, tanpa build step). HUD,
+modal, dan panel VS tetap **DOM HTML biasa** — renderer hanya mengurus `<canvas>`.
+
+### 3.1 Lapisan kode renderer
+
+| Lapisan | Fungsi utama | Tugas |
+|---|---|---|
+| Konversi koordinat | `gameTo3D` | world game `(wx, wy)` → world 3D `(x, -y, z)` |
+| Kamera | `updateCameraRig` | menulis global `camera3D` (eye, basis, focal, near, dist, yaw) |
+| Proyeksi | `projectPoint`, `projectGamePoint`, `clipPolygonNear` | world 3D → layar, potong di near plane |
+| Warna | `shadeHex`, `mixHex`, `zonePalette` | shading toon, kabut, gradien langit per zona |
+| Geometri | `platformMesh`, `starMesh` | mesh 3D platform dan prisma bintang |
+| Urutan | `sortByDepth`, `drawPoly3` | sort jauh → dekat lalu gambar polygon |
+| Gambar | `drawSkyAndEnvironment`, `drawPlatform`, `drawStarPou`, `animate` | komposisi satu frame |
+
+### 3.2 Kamera dan proyeksi per frame
+
+1. `animate(t)` dijalankan `requestAnimationFrame`.
+2. `cam.x`/`cam.y` di-ease menuju `cam.targetX`/`cam.targetY` (target naik saat
+   pemain mendarat di platform benar).
+3. `updateCameraRig()` menghitung `camera3D`: titik bidik, posisi mata kamera, jarak
+   adaptif terhadap viewport, FOV 55°, near plane 20, dan basis `fwd/right/up`.
+4. Setiap titik world diproyeksikan dengan `projectGamePoint()`; hasilnya dipakai
+   untuk menggambar polygon, teks, dan sprite. Objek di belakang kamera dipotong
+   `clipPolygonNear()` atau dilewati (culling).
+
+### 3.3 Depth sort dan zona
+
+- Tidak ada depth buffer. `sortByDepth()` mengurutkan kumpulan objek berdasarkan
+  `depth` proyeksi, lalu digambar jauh → dekat.
+- Zona langit dihitung dari `altitudePx = max(0, -cam.y)` dengan ambang
+  `[900, 1800, 2700]`; `zonePalette()` mengembalikan warna gradien, kabut, tint
+  awan, alpha bintang/planet, intensitas `sunset`, flag `cosmic`, dan nama zona.
+
+### 3.4 Cache dan ukuran canvas
+
+- Sprite awan/glow digambar sekali ke canvas offscreen lalu dipakai ulang.
+- Mesh platform di-cache lazy di `p._mesh3d`; prisma bintang dari `starMesh()`.
+- Canvas memakai DPR maksimal 2:
+  `dpr = min(devicePixelRatio, 2)`, backing store `W×dpr`/`H×dpr`,
+  `ctx.setTransform(dpr, 0, 0, dpr, 0, 0)`. Saat `resize`, `W`, `H`, `STEP_X`,
+  ukuran canvas, dan rig kamera dihitung ulang.
+
+### 3.5 Alur satu frame
+
+| # | Langkah | Kode |
+|---|---|---|
+| 1 | Ease kamera world, hitung rig 3D | `cam`, `updateCameraRig()` |
+| 2 | Langit, bintang, bulan/planet, awan latar | `drawSkyAndEnvironment(t)` |
+| 3 | Pulau bumi (bila masih terlihat) | `drawGroundIsland()` |
+| 4 | Panduan lompat (hanya saat idle) | `animate()` |
+| 5 | Platform lampau + 2 pilihan jawaban, urut jauh → dekat | `sortByDepth`, `drawPlatform` |
+| 6 | Fisika lompat/jatuh, shadow, karakter bintang | `animate()`, `drawStarPou(t)` |
+| 7 | Konfeti + teks melayang | `particles`, `floatingTexts` |
+| 8 | Awan foreground + vignette | penutup frame |
+
+Physics, skor, soal, timer, dan protokol VS di luar langkah-langkah itu dan tidak
+disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
+[10 · Renderer 3D](10-renderer-3d.md).
+
+---
+
+## 4. Model data
 
 ### Room (in-memory)
 
@@ -106,6 +175,13 @@ Browser tim 10─┘                        └───────────
 | Panjang nama tim | 24 | server |
 | `STEP_Y` | 210 px | `game.html` |
 | `STEP_X` | `min(230, W × 0.23)` | `game.html` |
+| `CAM_FOV_DEG` | 55° | `game.html` |
+| `CAM_NEAR` | 20 | `game.html` |
+| `ZONE_STEPS` | `[900, 1800, 2700]` px | `game.html` |
+| `AU` | `STEP_Y × 0.86` (≈180,6) | `game.html` |
+| `EYE_ABOVE` | 160 | `game.html` |
+| Jarak kamera minimum | 340 | `game.html` |
+| DPR maksimum | 2 | `game.html` |
 | Throttle skor | 400 ms | `game.html` |
 | Reconnect VS | 2 detik | `game.html` |
 | Delay benar / salah | 550 ms / 900 ms | `game.html` |
@@ -113,7 +189,7 @@ Browser tim 10─┘                        └───────────
 
 ---
 
-## 4. Siklus hidup room
+## 5. Siklus hidup room
 
 ```
 create_room
@@ -151,7 +227,7 @@ Catatan:
 
 ---
 
-## 5. Endpoint
+## 6. Endpoint
 
 | Endpoint | Metode | Respons |
 |---|---|---|
@@ -169,7 +245,7 @@ URL client:
 
 ---
 
-## 6. Protokol client → server
+## 7. Protokol client → server
 
 Semua pesan berupa objek JSON dengan field `type`.
 
@@ -249,7 +325,7 @@ Semua pesan berupa objek JSON dengan field `type`.
 
 ---
 
-## 7. Protokol server → client
+## 8. Protokol server → client
 
 | Pesan | Field | Kapan |
 |---|---|---|
@@ -296,7 +372,7 @@ Contoh `error`:
 
 ---
 
-## 8. Perilaku koneksi dan error
+## 9. Perilaku koneksi dan error
 
 - JSON rusak diabaikan tanpa balasan.
 - Tipe pesan tidak dikenal diabaikan.
@@ -309,7 +385,7 @@ Contoh `error`:
 
 ---
 
-## 9. Batasan desain
+## 10. Batasan desain
 
 | Area | Kondisi saat ini | Implikasi |
 |---|---|---|
@@ -324,7 +400,7 @@ Contoh `error`:
 
 ---
 
-## 10. Titik ekstensi yang masuk akal
+## 11. Titik ekstensi yang masuk akal
 
 Jika sistem dikembangkan, urutan prioritas yang wajar:
 
@@ -343,7 +419,7 @@ Semua perubahan itu memerlukan penyesuaian client, server, dan dokumentasi ini.
 
 ---
 
-## 11. Ringkasan keamanan
+## 12. Ringkasan keamanan
 
 - Gunakan WSS/HTTPS.
 - Ganti password default.
