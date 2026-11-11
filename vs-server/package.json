@@ -1,0 +1,6 @@
+{
+  "name": "sev7en-vs",
+  "type": "module",
+  "dependencies": { "ws": "^8.17.0" },
+  "scripts": { "start": "node server.js" }
+}

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sev7en Club · Star-Pou Sky Climber</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--amber:#fbbf24;--blue:#3b82f6;--sky:#38bdf8;--line:rgba(255,255,255,.12)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif;background:radial-gradient(1200px 600px at 70% -10%, #1e3a8a22, transparent),radial-gradient(900px 500px at 20% 110%, #7c3aed22, transparent),var(--bg);color:#e2e8f0;display:flex;align-items:center;justify-content:center;padding:20px}
+.wrap{width:min(460px,96vw);text-align:center}
+.logo{font-size:58px;line-height:1}
+h1{font-size:30px;font-weight:900;letter-spacing:-.5px;margin:10px 0 4px;background:linear-gradient(135deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:#94a3b8;font-size:13.5px;margin-bottom:28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:18px;margin-bottom:14px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:14px;transition:transform .12s,border-color .12s;box-shadow:0 10px 24px rgba(0,0,0,.25)}
+.card:hover{transform:translateY(-2px);border-color:var(--amber)}
+.ic{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;flex:none}
+.ic-solo{background:linear-gradient(135deg,#22c55e,#15803d)}
+.ic-room{background:linear-gradient(135deg,#3b82f6,#1d4ed8)}
+.ic-admin{background:linear-gradient(135deg,#8b5cf6,#6d28d9)}
+.card b{display:block;font-size:16.5px;color:#fff}
+.card small{color:#94a3b8;font-size:12px;line-height:1.4;display:block;margin-top:2px}
+.hint{margin-top:22px;color:#64748b;font-size:11.5px;line-height:1.6}
+.hint code{background:#1e293b;padding:1px 6px;border-radius:6px;color:#fbbf24;font-size:11px}
+/* join modal */
+#joinModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.78);backdrop-filter:blur(8px);z-index:80;padding:20px}
+#joinModal .box{background:#fff;width:min(420px,96vw);border-radius:22px;padding:22px;border:4px solid #fbbf24;box-shadow:0 18px 40px rgba(0,0,0,.45);text-align:left}
+#joinModal h2{font-size:20px;font-weight:900;color:#1d4ed8;margin-bottom:4px}
+#joinModal p{font-size:13px;color:#475569;margin-bottom:14px}
+.j-input{width:100%;padding:11px 12px;border-radius:12px;border:2px solid #cbd5e1;font-size:15px;font-weight:800;color:#0f172a}
+.j-input.code{text-transform:uppercase;letter-spacing:2px;text-align:center}
+.j-btn{width:100%;padding:12px;border:0;border-radius:14px;font-weight:900;cursor:pointer;margin-top:6px}
+.j-primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+.j-ghost{background:#e2e8f0;color:#334155}
+.j-err{color:#ef4444;font-weight:800;font-size:13px;display:none;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">⭐🚀</div>
+  <h1>SEV7EN CLUB</h1>
+  <p class="sub">Star-Pou Sky Climber — naikin bintang ke luar angkasa!</p>
+
+  <div class="card" onclick="location='/game.html'">
+    <div class="ic ic-solo">🎮</div>
+    <div><b>Main Sendiri</b><small>Latihan solo naik tangga. Pilih materi & durasi.</small></div>
+  </div>
+
+  <div class="card" onclick="openJoin()">
+    <div class="ic ic-room">👥</div>
+    <div><b>Gabung Room (Mabar)</b><small>Masuk pakai kode 6 huruf dari admin. 1 laptop = 1 tim.</small></div>
+  </div>
+
+  <div class="card" onclick="location='/admin/'">
+    <div class="ic ic-admin">🛡️</div>
+    <div><b>Panel Admin</b><small>Buat room, kelola soal, pantau leaderboard live.</small></div>
+  </div>
+
+  <p class="hint">Tim yang join perlu kode dari admin. Kode contoh: <code>RQ7K2P</code></p>
+</div>
+
+<!-- Join modal di landing -->
+<div id="joinModal" onclick="if(event.target===this) closeJoin()">
+  <div class="box">
+    <h2>🚪 Gabung Room</h2>
+    <p>Masukkan kode dari admin + nama kelompok (1 device = 1 kelompok). Kalau kode bener kamu diam di waiting room sampai host mulai.</p>
+    <div style="display:grid;gap:10px">
+      <input id="joinCode" class="j-input code" placeholder="Kode 6 huruf, mis. RQ7K2P" maxlength="6"/>
+      <input id="joinName" class="j-input" placeholder="Nama tim, mis. KELOMPOK BINTANG 2" maxlength="24"/>
+      <button class="j-btn j-primary" onclick="doJoin()">Gabung & Tunggu di Lobby</button>
+      <button class="j-btn j-ghost" onclick="closeJoin()">Batal</button>
+      <p id="joinErr" class="j-err"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+function openJoin(){
+  const m=document.getElementById('joinModal');
+  m.style.display='flex';
+  document.getElementById('joinErr').style.display='none';
+  // prefill dari ?code= di URL landing kalau ada
+  const c=new URLSearchParams(location.search).get('code');
+  if(c) document.getElementById('joinCode').value=c.toUpperCase();
+}
+function closeJoin(){ document.getElementById('joinModal').style.display='none'; }
+function doJoin(){
+  const code=document.getElementById('joinCode').value.trim().toUpperCase();
+  const name=document.getElementById('joinName').value.trim();
+  const err=document.getElementById('joinErr');
+  if(!code || !name){ err.textContent='Kode & nama tim wajib'; err.style.display='block'; return; }
+  if(code.length!==6){ err.textContent='Kode harus 6 huruf'; err.style.display='block'; return; }
+  // bawa ke game.html waiting room
+  location.href='/game.html?code='+encodeURIComponent(code)+'&team='+encodeURIComponent(name)+'#join';
+}
+// auto open kalau landing diakses dengan ?code=xxx atau #join
+(function(){
+  const p=new URLSearchParams(location.search);
+  if(p.get('code') || location.hash.indexOf('join')>=0) openJoin();
+})();
+</script>
+</body>
+</html>

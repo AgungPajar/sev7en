@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Star-Pou Sky Climber - Bimbel Agrita</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      overflow: hidden;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #0f172a;
+      height: 100vh;
+      width: 100vw;
+    }
+    canvas { display: block; width: 100vw; height: 100vh; }
+
+    /* Top HUD (Score, Altitude, Timer) */
+    .hud {
+      position: fixed; top: 14px; left: 18px; right: 18px;
+      display: flex; justify-content: space-between; align-items: center;
+      z-index: 10; pointer-events: none;
+    }
+    .hud-box {
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(10px);
+      border: 2px solid rgba(255, 255, 255, 0.22);
+      border-radius: 16px;
+      padding: 8px 18px;
+      color: #fff;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 8px 25px rgba(0,0,0,0.35);
+      pointer-events: auto;
+    }
+    .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #93c5fd; font-weight: 800; }
+    .stat-val { font-size: 24px; font-weight: 900; color: #fbbf24; }
+    .zone-badge {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      color: #fff; font-weight: 800; font-size: 12px;
+      padding: 5px 12px; border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    /* Question Box (Top Center) */
+    .question-container {
+      position: fixed; top: 78px; left: 50%; transform: translateX(-50%);
+      width: min(740px, 92vw);
+      background: rgba(255, 255, 255, 0.95);
+      border: 4px solid #fbbf24;
+      border-radius: 22px;
+      padding: 12px 24px;
+      text-align: center;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      z-index: 10;
+    }
+    .q-header {
+      display: flex; justify-content: center; align-items: center; gap: 10px;
+      margin-bottom: 4px;
+    }
+    .q-number {
+      background: #2563eb; color: #fff;
+      font-weight: 900; font-size: 12px; letter-spacing: 1px;
+      padding: 3px 12px; border-radius: 99px;
+      text-transform: uppercase;
+    }
+    .q-emoji { font-size: 28px; }
+    .q-text {
+      font-size: clamp(18px, 2.5vw, 26px);
+      font-weight: 800; color: #0f172a; line-height: 1.25;
+    }
+
+    /* Controls Hint Bottom */
+    .bottom-bar {
+      position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(15, 23, 42, 0.85); color: #e2e8f0;
+      padding: 7px 18px; border-radius: 99px; font-size: 12px; font-weight: 600;
+      border: 1px solid rgba(255,255,255,0.18); z-index: 10;
+      display: flex; gap: 14px; align-items: center; white-space: nowrap;
+    }
+    .key-badge {
+      background: #fbbf24; color: #0f172a; font-weight: 900;
+      padding: 2px 7px; border-radius: 6px; margin: 0 2px;
+    }
+
+    /* Start / Game Over Modal */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(15, 23, 42, 0.85);
+      backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 50;
+    }
+    .modal-card {
+      background: #ffffff; color: #0f172a;
+      width: min(480px, 92vw); border-radius: 28px;
+      padding: 28px; text-align: center;
+      border: 5px solid #fbbf24;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+    .modal-card h1 { font-size: 28px; font-weight: 900; color: #1d4ed8; margin-bottom: 6px; }
+    .modal-card p { font-size: 14px; color: #475569; margin-bottom: 18px; line-height: 1.45; }
+    .setting-row { margin-bottom: 14px; text-align: left; }
+    .setting-row label { display: block; font-size: 11px; font-weight: 800; color: #334155; margin-bottom: 5px; text-transform: uppercase; }
+    .setting-row select, .setting-row input {
+      width: 100%; padding: 9px 12px; border-radius: 12px;
+      border: 2px solid #cbd5e1; font-size: 14px; font-weight: 700; color: #0f172a;
+    }
+    .btn-play {
+      width: 100%; background: linear-gradient(135deg, #f59e0b, #ea580c);
+      color: #fff; border: none; padding: 13px; border-radius: 16px;
+      font-size: 19px; font-weight: 900; cursor: pointer;
+      box-shadow: 0 6px 20px rgba(234, 88, 12, 0.4);
+      transition: transform 0.15s;
+    }
+    .btn-play:hover { transform: scale(1.02); }
+    .btn-small {
+      background: #3b82f6; color: white; border: none; padding: 6px 12px;
+      border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px;
+    }
+    .btn-small:hover { background: #2563eb; }
+  </style>
+</head>
+<body>
+<script id="early-join-hide">
+(function(){
+  try{
+    var hasJoin = location.hash.indexOf('join')>=0 || new URLSearchParams(location.search).has('code');
+    if(hasJoin){
+      var style=document.createElement('style');
+      style.id='early-join-hide-style';
+      style.textContent='#modal{display:none !important} #vs-modal{display:flex !important}';
+      document.head.appendChild(style);
+    }
+  }catch(e){}
+})();
+</script>
+
+  <!-- Top HUD -->
+  <div class="hud">
+    <div class="hud-box">
+      <div>
+        <div class="stat-label" id="team-display">TIM BINTANG A</div>
+        <div class="stat-val" id="score-val">0</div>
+      </div>
+      <div style="border-left:1px solid rgba(255,255,255,0.2); padding-left:14px;">
+        <div class="stat-label">KETINGGIAN</div>
+        <div class="stat-val" id="alt-val" style="color:#4ade80;">0m</div>
+      </div>
+      <div class="zone-badge" id="zone-badge">🌱 Bumi / Tanah</div>
+    </div>
+
+    <div class="hud-box">
+      <div>
+        <div class="stat-label">SISA WAKTU</div>
+        <div class="stat-val" id="timer-val" style="color:#38bdf8;">03:00</div>
+      </div>
+      <button class="btn-small" onclick="openMenu()">⚙️ Menu</button>
+    </div>
+  </div>
+
+  <!-- Question Banner -->
+  <div class="question-container">
+    <div class="q-header">
+      <span class="q-number" id="q-counter">TANGGA 1</span>
+      <span class="q-emoji" id="q-emoji">🍎</span>
+    </div>
+    <div class="q-text" id="q-text">Loading question...</div>
+  </div>
+
+  <!-- Bottom Control Hint -->
+  <div class="bottom-bar">
+    <span>⬅️ Lompat Kiri: <span class="key-badge">Panah Kiri</span> / <span class="key-badge">A</span> / Klik Kiri</span>
+    <span>|</span>
+    <span>➡️ Lompat Kanan: <span class="key-badge">Panah Kanan</span> / <span class="key-badge">D</span> / Klik Kanan</span>
+  </div>
+
+  <!-- Start / End Modal -->
+  <div class="modal-overlay" id="modal">
+    <div class="modal-card">
+      <div style="font-size: 50px; margin-bottom: 4px;">⭐🚀</div>
+      <h1 id="modal-title">STAR-POU SKY CLIMBER</h1>
+      <p id="modal-desc">Lompat naik dari <b>Tanah ➡️ Awan ➡️ Luar Angkasa</b>! Setiap jawaban benar akan menaikkan bintangmu ke tangga awan berikutnya!</p>
+
+      <div class="setting-row">
+        <label>Nama Tim di Laptop Ini:</label>
+        <input type="text" id="team-input" value="TIM BINTANG A" />
+      </div>
+
+      <div class="setting-row">
+        <label>Pilih Materi (Kelas 3 & 4):</label>
+        <select id="topic-select">
+          <option value="all">🌟 Semua Materi Gabungan (Kelas 3 & 4)</option>
+          <option value="there_prep">🏠 There is/are, Rooms & Prepositions</option>
+          <option value="food_kitchen">🍳 Meals, Likes/Dislikes & Kitchen</option>
+          <option value="continuous_hobby">⚽ Present Continuous & Hobbies</option>
+          <option value="routine_transport">🚌 Morning Routine, Numbers & Transport</option>
+        </select>
+      </div>
+
+      <div class="setting-row">
+        <label>Durasi 1 Match (Cepat-cepatan Naik Tangga):</label>
+        <select id="duration-select">
+          <option value="120">⏱️ 2 Menit (Sprint)</option>
+          <option value="180" selected>⏱️ 3 Menit (Normal)</option>
+          <option value="300">⏱️ 5 Menit (Marathon)</option>
+          <option value="9999">♾️ Tanpa Batas Waktu (Latihan)</option>
+        </select>
+      </div>
+
+            <button class="btn-play" onclick="startGame()">🚀 MULAI NAIK TANGGA! (Solo)</button>
+      <button class="btn-play" style="margin-top:10px;background:linear-gradient(135deg,#3b82f6,#1d4ed8)" onclick="vsOpenJoin()">👥 GABUNG MABAR — Masuk Kode Room</button>
+      <p style="margin-top:8px;font-size:11px;color:#64748b">Mabar = masuk kode dari admin & tunggu di lobby sampai host “Mulai”.</p>
+    </div>
+  </div>
+
+  
+<!-- ================= VS MODE OVERLAY (Opsi A) ================= -->
+<div id="vs-bar" style="position:fixed;top:78px;right:18px;z-index:11;display:none;gap:10px;align-items:center">
+  <span id="vs-code-badge" style="background:#0f172a;color:#fbbf24;font-weight:900;padding:6px 12px;border-radius:999px;border:2px solid #fbbf24;font-size:13px;letter-spacing:1px">KODE —</span>
+  <span id="vs-live-dot" style="width:10px;height:10px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e;display:inline-block"></span>
+  <span id="vs-teams-count" style="color:#fff;font-weight:800;font-size:12px;background:rgba(15,23,42,.8);padding:4px 10px;border-radius:999px">0 tim</span>
+</div>
+<div id="vs-leaderboard" style="position:fixed;top:118px;right:18px;z-index:11;display:none;min-width:220px;max-width:280px;background:rgba(15,23,42,.92);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.18);border-radius:14px;padding:10px 10px 8px;color:#e2e8f0;box-shadow:0 8px 24px rgba(0,0,0,.35);font-size:12px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <b style="letter-spacing:.6px">🏆 LEADERBOARD</b><span id="vs-lb-timer" style="color:#38bdf8;font-weight:900">—</span>
+  </div>
+  <div id="vs-lb-list"></div>
+</div>
+
+<style>
+#vs-modal{position:fixed;inset:0;z-index:70;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.78);backdrop-filter:blur(8px)}
+#vs-modal .vs-card{background:#fff;width:min(520px,94vw);border-radius:24px;padding:22px;border:4px solid #fbbf24;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+#vs-modal h2{font-size:20px;font-weight:900;color:#1d4ed8;margin-bottom:4px}
+#vs-modal p{font-size:13px;color:#475569;margin-bottom:12px}
+.vs-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.vs-input, .vs-select{width:100%;padding:10px 12px;border-radius:12px;border:2px solid #cbd5e1;font-weight:700;font-size:14px}
+.vs-btn{width:100%;padding:12px;border-radius:14px;border:none;font-weight:900;cursor:pointer}
+.vs-btn-primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+.vs-btn-accent{background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff}
+.vs-btn-ghost{background:#f1f5f9;color:#0f172a}
+.vs-code{font-family:monospace;letter-spacing:3px;font-size:28px;font-weight:900;color:#0f172a;background:#fef3c7;border:2px dashed #f59e0b;border-radius:12px;padding:8px 14px;text-align:center}
+.vs-lobby-team{padding:8px 10px;border-radius:10px;border:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;font-weight:700}
+</style>
+
+<div id="vs-modal">
+  <div class="vs-card" id="vs-card-create">
+    <h2>⚔️ Buat Room VS</h2>
+    <p>Admin bikin room, share kode ke kelompok. Max 10 tim.</p>
+    <div style="display:grid;gap:10px">
+      <label style="font-size:11px;font-weight:800;color:#334155">PASSWORD ADMIN</label>
+      <input id="vs-admin-pass" class="vs-input" type="password" placeholder="admin (ganti via ENV)"/>
+      <div class="vs-grid">
+        <div><label style="font-size:11px;font-weight:800">MATERI</label><select id="vs-materi" class="vs-select"><option value="all">Semua</option><option value="there_prep">There / Prep</option><option value="food_kitchen">Food & Kitchen</option><option value="continuous_hobby">Continuous & Hobby</option><option value="routine_transport">Routine & Transport</option></select></div>
+        <div><label style="font-size:11px;font-weight:800">DURASI</label><select id="vs-duration" class="vs-select"><option value="180">3 menit</option><option value="300">5 menit</option><option value="600">10 menit</option><option value="9000">♾️ Tanpa batas</option></select></div>
+      </div>
+      <button class="vs-btn vs-btn-primary" onclick="vsCreateRoom()">Buat Room + Dapatkan Kode</button>
+      <div id="vs-create-result" style="display:none">
+        <div class="vs-code" id="vs-code-display">—</div>
+        <p style="text-align:center;margin:8px 0 0">Share kode ini / link: <span id="vs-share-link" style="font-weight:800;word-break:break-all"></span> <button class="vs-btn vs-btn-ghost" style="margin-top:8px" onclick="vsCopyLink()">📋 Salin Link</button></p>
+        <div id="vs-lobby-host" style="margin-top:10px;max-height:180px;overflow:auto;display:grid;gap:6px"></div>
+        <button class="vs-btn vs-btn-accent" style="margin-top:10px" onclick="vsStartGame()">▶️ MULAI MABAR (semua tim serentak)</button>
+      </div>
+      <button class="vs-btn vs-btn-ghost" onclick="vsClose()">Tutup</button>
+      <p id="vs-create-err" style="color:#ef4444;font-weight:800;display:none"></p>
+    </div>
+  </div>
+  <div class="vs-card" id="vs-card-join" style="display:none">
+    <h2>🚪 Join Room</h2>
+    <p>Masukkan kode dari admin + nama kelompok (1 device = 1 kelompok)</p>
+    <div style="display:grid;gap:10px">
+      <input id="vs-join-code" class="vs-input" placeholder="Kode 6 huruf, mis. 7X9KQ2" maxlength="6" style="text-transform:uppercase;letter-spacing:2px;font-weight:900;text-align:center"/>
+      <input id="vs-join-name" class="vs-input" placeholder="Nama tim, mis. KELOMPOK BINTANG 2" maxlength="24"/>
+      <button class="vs-btn vs-btn-primary" onclick="vsJoinRoom()">Join Lobby</button>
+      <div id="vs-join-lobby" style="display:none">
+        <p style="font-weight:800;color:#0f172a">Menunggu host memulai… <span id="vs-join-status">lobby</span></p>
+        <div id="vs-lobby-guest" style="max-height:180px;overflow:auto;display:grid;gap:6px"></div>
+      </div>
+      <button class="vs-btn vs-btn-ghost" onclick="vsClose()">Tutup</button>
+      <p id="vs-join-err" style="color:#ef4444;font-weight:800;display:none"></p>
+    </div>
+  </div>
+</div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    // --- 1. BANK SOAL GABUNGAN KELAS 3 & 4 ---
+    const QUESTION_BANK = [
+      // There is / There are, Rooms & Prepositions
+      { topic: 'there_prep', emoji: '🐱🪑', q: 'The cat is sleeping ______ the table. (Di bawah)', correct: 'under', wrong: 'behind' },
+      { topic: 'there_prep', emoji: '📚', q: '______ three books on the desk.', correct: 'There are', wrong: 'There is' },
+      { topic: 'there_prep', emoji: '🛋️', q: '______ a big sofa in my living room.', correct: 'There is', wrong: 'There are' },
+      { topic: 'there_prep', emoji: '🧑‍🏫', q: 'There is a whiteboard ______ the class. (Di depan)', correct: 'in front of', wrong: 'under' },
+      { topic: 'there_prep', emoji: '📺', q: 'We watch ______ in the living room.', correct: 'television', wrong: 'refrigerator' },
+      { topic: 'there_prep', emoji: '🛏️', q: 'There ______ three bedrooms in my house.', correct: 'are', wrong: 'is' },
+      { topic: 'there_prep', emoji: '💡', q: 'There ______ one lamp on the table.', correct: 'is', wrong: 'are' },
+      { topic: 'there_prep', emoji: '🎒', q: 'Where is the bag? It is ______ the chair. (Di atas)', correct: 'on', wrong: 'in' },
+
+      // Meals, Likes/Dislikes & Kitchen
+      { topic: 'food_kitchen', emoji: '🌅🍛', q: 'It is 7 a.m. in the morning. I eat ______.', correct: 'breakfast', wrong: 'dinner' },
+      { topic: 'food_kitchen', emoji: '🌙🍽️', q: 'We eat ______ at 7 p.m. at night.', correct: 'dinner', wrong: 'breakfast' },
+      { topic: 'food_kitchen', emoji: '🍗😋', q: 'Do you like fried chicken? Yes, ______.', correct: 'I do', wrong: 'I don\'t' },
+      { topic: 'food_kitchen', emoji: '🥛🤢', q: 'Do you like milk? No, ______.', correct: 'I don\'t', wrong: 'I do' },
+      { topic: 'food_kitchen', emoji: '🍽️🚰', q: 'We can wash the dirty plates in the ______.', correct: 'sink', wrong: 'stove' },
+      { topic: 'food_kitchen', emoji: '🍳🔥', q: 'My mother cooks fried rice on the ______.', correct: 'stove', wrong: 'carpet' },
+      { topic: 'food_kitchen', emoji: '🧊🍎', q: 'We keep milk and fruit cold in the ______.', correct: 'refrigerator', wrong: 'cupboard' },
+      { topic: 'food_kitchen', emoji: '👨‍🍳', q: 'I ______ make fried rice in the kitchen.', correct: 'can', wrong: 'am' },
+
+      // Present Continuous & Hobbies
+      { topic: 'continuous_hobby', emoji: '📖👧', q: 'Look! She ______ reading a book now.', correct: 'is', wrong: 'are' },
+      { topic: 'continuous_hobby', emoji: '⚽👦👦', q: 'They ______ playing football in the yard.', correct: 'are', wrong: 'is' },
+      { topic: 'continuous_hobby', emoji: '✍️🙋‍♂️', q: 'I ______ studying English right now.', correct: 'am', wrong: 'is' },
+      { topic: 'continuous_hobby', emoji: '🏊‍♂️', q: 'Is your hobby swimming? Yes, ______.', correct: 'it is', wrong: 'I do' },
+      { topic: 'continuous_hobby', emoji: '🚴‍♂️', q: 'My hobby is ______ a bicycle.', correct: 'cycling', wrong: 'sleeping' },
+      { topic: 'continuous_hobby', emoji: '🎨🖌️', q: 'She likes ______ pictures. (Melukis)', correct: 'painting', wrong: 'swimming' },
+
+      // Morning Routine, Numbers & Transport
+      { topic: 'routine_transport', emoji: '⏰🛌', q: 'I always ______ up at 5 o\'clock every morning.', correct: 'get', wrong: 'take' },
+      { topic: 'routine_transport', emoji: '🚿🧼', q: 'I ______ a bath at 6 a.m. before school.', correct: 'take', wrong: 'eat' },
+      { topic: 'routine_transport', emoji: '🚌🏫', q: 'I go to school ______ bus.', correct: 'by', wrong: 'on' },
+      { topic: 'routine_transport', emoji: '🚲', q: 'How do you go to school? By ______. (Sepeda)', correct: 'bike', wrong: 'train' },
+      { topic: 'routine_transport', emoji: '🔢2️⃣5️⃣', q: 'What number is 25 in English?', correct: 'Twenty-five', wrong: 'Thirty-five' },
+      { topic: 'routine_transport', emoji: '🔢4️⃣0️⃣', q: 'There are ______ (40) students in the class.', correct: 'Forty', wrong: 'Fourteen' },
+      { topic: 'routine_transport', emoji: '🔢5️⃣0️⃣', q: 'What number is 50 in English?', correct: 'Fifty', wrong: 'Fifteen' }
+    ];
+
+    // --- 2. WEB AUDIO SFX ---
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let audioCtx = null;
+
+    function playSound(type) {
+      if (!audioCtx) audioCtx = new AudioCtx();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const now = audioCtx.currentTime;
+
+      if (type === 'jump') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(620, now + 0.18);
+        gain.gain.setValueAtTime(0.25, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.2);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.2);
+      } else if (type === 'correct') {
+        [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.06);
+          gain.gain.setValueAtTime(0.2, now + i * 0.06);
+          gain.gain.exponentialRampToValueAtTime(0.008, now + i * 0.06 + 0.22);
+          osc.connect(gain); gain.connect(audioCtx.destination);
+          osc.start(now + i * 0.06); osc.stop(now + i * 0.06 + 0.22);
+        });
+      } else if (type === 'wrong') {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(240, now);
+        osc.frequency.linearRampToValueAtTime(85, now + 0.45);
+        gain.gain.setValueAtTime(0.22, now);
+        gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(now); osc.stop(now + 0.45);
+      }
+    }
+
+    // --- 3. WORLD, CAMERA & CLIMBING STATE ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    let W = window.innerWidth;
+    let H = window.innerHeight;
+    canvas.width = W; canvas.height = H;
+
+    const STEP_Y = 210; // Vertical distance between stairs
+    let STEP_X = Math.min(230, W * 0.23); // Horizontal spread of left/right options
+
+    window.addEventListener('resize', () => {
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W; canvas.height = H;
+      STEP_X = Math.min(230, W * 0.23);
+    });
+
+    // Camera in World Coordinates (As player climbs up, worldY becomes more negative)
+    const cam = {
+      x: 0, y: 0,
+      targetX: 0, targetY: 0
+    };
+
+    // Staircase History & Current Choices
+    letitedPlatforms = []; // Past platforms we climbed
+    let currentBasePlat = null;
+    let leftOptionPlat = null;
+    let rightOptionPlat = null;
+
+    // Star-Pou Character in World Coordinates
+    const star = {
+      wx: 0, wy: 0,
+      startX: 0, startY: 0,
+      targetX: 0, targetY: 0,
+      progress: 0,
+      state: 'idle', // 'idle', 'jumping', 'celebrating', 'falling'
+      expression: 'happy',
+      scaleX: 1, scaleY: 1,
+      vy: 0, rotation: 0,
+      chosenPlat: null
+    };
+
+    // Parallax Clouds & Stars
+    let bgClouds = [];
+    let spaceStars = [];
+    let particles = [];
+    let floatingTexts = [];
+
+    function initEnvironment() {
+      bgClouds = [];
+      for (let i = 0; i < 18; i++) {
+        bgClouds.push({
+          offsetX: (Math.random() - 0.5) * W * 1.8,
+          worldY: -i * 180 - Math.random() * 120,
+          scale: 0.6 + Math.random() * 0.7,
+          speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1)
+        });
+      }
+      spaceStars = [];
+      for (let i = 0; i < 120; i++) {
+        spaceStars.push({
+          rx: Math.random(),
+          ry: Math.random(),
+          size: 1 + Math.random() * 2.5,
+          blinkSpeed: 0.002 + Math.random() * 0.006,
+          phase: Math.random() * Math.PI * 2
+        });
+      }
+    }
+    initEnvironment();
+
+    // Game Progress Variables
+    let activePool = [];
+    let currentQIndex = 0;
+    let floorLevel = 0; // 0 = Ground, 1+ = Stairs climbed
+    let score = 0;
+    let streak = 0;
+    let timeLeft = 180;
+    let timerInterval = null;
+    let gameRunning = false;
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    // --- 4. GAME INITIALIZATION & CLIMBING FLOW ---
+    window.openMenu = () => {
+      gameRunning = false;
+      clearInterval(timerInterval);
+      document.getElementById('modal-title').textContent = 'PENGATURAN MATCH';
+      document.getElementById('modal').style.display = 'flex';
+    };
+
+    window.startGame = () => {
+      const topic = document.getElementById('topic-select').value;
+      const duration = parseInt(document.getElementById('duration-select').value, 10);
+      const teamName = document.getElementById('team-input').value.trim() || 'TIM BINTANG A';
+
+      document.getElementById('team-display').textContent = teamName.toUpperCase();
+      document.getElementById('modal').style.display = 'none';
+
+      const filtered = topic === 'all'
+        ? QUESTION_BANK
+        : QUESTION_BANK.filter(q => q.topic === topic);
+
+      activePool = shuffle(filtered);
+      currentQIndex = 0;
+      floorLevel = 0;
+      score = 0;
+      streak = 0;
+      timeLeft = duration;
+      gameRunning = true;
+
+      // Reset World at Ground (0, 0)
+      currentBasePlat = {
+        wx: 0, wy: 0, w: 220, h: 30,
+        label: 'START (TANAH)', isStart: true, level: 0, status: 'correct'
+      };
+      letitedPlatforms = [currentBasePlat];
+
+      star.wx = 0;
+      star.wy = -48;
+      star.state = 'idle';
+      star.expression = 'happy';
+      star.rotation = 0;
+
+      cam.x = 0; cam.y = 0;
+      cam.targetX = 0; cam.targetY = 0;
+
+      initEnvironment();
+      spawnNextStairOptions();
+      updateHUD();
+
+      clearInterval(timerInterval);
+      if (duration < 9000) {
+        timerInterval = setInterval(() => {
+          if (!gameRunning) return;
+          timeLeft--;
+          updateHUD();
+          if (timeLeft <= 0) endGame();
+        }, 1000);
+      } else {
+        document.getElementById('timer-val').textContent = '♾️';
+      }
+    };
+
+    function endGame() {
+      gameRunning = false;
+      clearInterval(timerInterval);
+      const altMeters = floorLevel * 100;
+      document.getElementById('modal-title').textContent = '🎉 WAKTU HABIS!';
+      document.getElementById('modal-desc').innerHTML =
+        `Hasil Akhir <b>${document.getElementById('team-display').textContent}</b>:<br>` +
+        `<span style="font-size:38px; font-weight:900; color:#f59e0b;">${score} POIN</span><br>` +
+        `Ketinggian Dicapai: <b>${altMeters} Meter (Tangga ${floorLevel})</b>`;
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    function updateHUD() {
+      document.getElementById('score-val').textContent = score;
+      const meters = floorLevel * 100;
+      document.getElementById('alt-val').textContent = `${meters}m`;
+
+      const badge = document.getElementById('zone-badge');
+      if (floorLevel < 4) {
+        badge.textContent = '🌱 Bumi & Rumput';
+        badge.style.background = 'linear-gradient(135deg, #22c55e, #15803d)';
+      } else if (floorLevel < 8) {
+        badge.textContent = '☁️ Langit Awan';
+        badge.style.background = 'linear-gradient(135deg, #38bdf8, #0284c7)';
+      } else if (floorLevel < 12) {
+        badge.textContent = '🌇 Atmosfer Senja';
+        badge.style.background = 'linear-gradient(135deg, #f59e0b, #b45309)';
+      } else {
+        badge.textContent = '🚀 Luar Angkasa!';
+        badge.style.background = 'linear-gradient(135deg, #8b5cf6, #4c1d95)';
+      }
+
+      if (timeLeft < 9000) {
+        const m = String(Math.floor(timeLeft / 60)).padStart(2, '0');
+        const s = String(timeLeft % 60).padStart(2, '0');
+        document.getElementById('timer-val').textContent = `${m}:${s}`;
+      }
+    }
+
+    function spawnNextStairOptions() {
+      if (currentQIndex >= activePool.length) {
+        activePool = shuffle(activePool);
+        currentQIndex = 0;
+      }
+      const q = activePool[currentQIndex++];
+
+      document.getElementById('q-counter').textContent = `TANGGA ${floorLevel + 1}`;
+      document.getElementById('q-emoji').textContent = q.emoji;
+      document.getElementById('q-text').textContent = q.q;
+
+      const leftIsCorrect = Math.random() < 0.5;
+      const nextY = currentBasePlat.wy - STEP_Y;
+
+      leftOptionPlat = {
+        wx: currentBasePlat.wx - STEP_X,
+        wy: nextY,
+        w: 250, h: 32,
+        text: leftIsCorrect ? q.correct : q.wrong,
+        isCorrect: leftIsCorrect,
+        broken: false, fallY: 0, status: 'neutral', side: 'left',
+        level: floorLevel + 1
+      };
+
+      rightOptionPlat = {
+        wx: currentBasePlat.wx + STEP_X,
+        wy: nextY,
+        w: 250, h: 32,
+        text: leftIsCorrect ? q.wrong : q.correct,
+        isCorrect: !leftIsCorrect,
+        broken: false, fallY: 0, status: 'neutral', side: 'right',
+        level: floorLevel + 1
+      };
+
+      // Ensure plenty of clouds exist above as we climb
+      const highestCloudY = bgClouds.reduce((min, c) => Math.min(min, c.worldY), 0);
+      if (nextY - 800 < highestCloudY) {
+        for (let i = 0; i < 6; i++) {
+          bgClouds.push({
+            offsetX: (Math.random() - 0.5) * W * 1.8,
+            worldY: highestCloudY - (i + 1) * 190,
+            scale: 0.6 + Math.random() * 0.7,
+            speed: (Math.random() * 0.4 + 0.15) * (Math.random() < 0.5 ? 1 : -1)
+          });
+        }
+      }
+    }
+
+    // --- 5. JUMPING UP THE STAIRS ---
+    function triggerJump(side) {
+      if (!gameRunning || star.state !== 'idle') return;
+      const targetPlat = side === 'left' ? leftOptionPlat : rightOptionPlat;
+      if (!targetPlat) return;
+
+      playSound('jump');
+      star.state = 'jumping';
+      star.expression = 'jump';
+      star.chosenPlat = targetPlat;
+      star.startX = star.wx;
+      star.startY = star.wy;
+      star.targetX = targetPlat.wx;
+      star.targetY = targetPlat.wy - 48;
+      star.progress = 0;
+      star.scaleX = 0.78;
+      star.scaleY = 1.28;
+    }
+
+    function onLandOnPlatform(plat) {
+      if (plat.isCorrect) {
+        // CORRECT -> CLIMB UP TO THIS PLATFORM PERMANENTLY!
+        playSound('correct');
+        plat.status = 'correct';
+        star.state = 'celebrating';
+        star.expression = 'win';
+        star.scaleX = 1.32;
+        star.scaleY = 0.72;
+
+        floorLevel++;
+        streak++;
+        const earned = 100 + Math.min(streak - 1, 5) * 20;
+        score += earned;
+        updateHUD();
+
+        // Save landed platform into history & pan camera UP to make it the new base!
+        currentBasePlat = plat;
+        letitedPlatforms.push(plat);
+        if (letitedPlatforms.length > 8) letitedPlatforms.shift();
+
+        // Smoothly pan camera to the newly climbed platform
+        cam.targetX = plat.wx;
+        cam.targetY = plat.wy;
+
+        spawnConfetti(plat.wx, plat.wy - 30, '#4ade80');
+        floatingTexts.push({
+          wx: plat.wx, wy: plat.wy - 85,
+          text: `+${earned} NAIK! ⬆️`, color: '#4ade80', alpha: 1
+        });
+
+        setTimeout(() => {
+          if (!gameRunning) return;
+          star.state = 'idle';
+          star.expression = 'happy';
+          spawnNextStairOptions();
+        }, 550);
+
+      } else {
+        // WRONG -> CLOUD BREAKS, FALLS DOWN BACK TO LAST SAFE STEP!
+        playSound('wrong');
+        plat.status = 'wrong';
+        plat.broken = true;
+        star.state = 'falling';
+        star.expression = 'dizzy';
+        star.vy = -4; // Slight pop before dropping
+
+        streak = 0;
+        updateHUD();
+
+        spawnConfetti(plat.wx, plat.wy, '#ef4444');
+        floatingTexts.push({
+          wx: plat.wx, wy: plat.wy - 85,
+          text: `AWAN HANCUR! 💥`, color: '#f87171', alpha: 1
+        });
+
+        // After falling back to the safe platform level, land back on currentBasePlat & load new question
+        setTimeout(() => {
+          if (!gameRunning) return;
+          star.wx = currentBasePlat.wx;
+          star.wy = currentBasePlat.wy - 48;
+          star.rotation = 0;
+          star.scaleX = 1.25;
+          star.scaleY = 0.75;
+          star.state = 'idle';
+          star.expression = 'happy';
+          spawnNextStairOptions();
+        }, 900);
+      }
+    }
+
+    // Controls
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') triggerJump('left');
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') triggerJump('right');
+    });
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (!gameRunning || star.state !== 'idle') return;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      if (mx < W / 2) triggerJump('left');
+      else triggerJump('right');
+    });
+
+    // --- 6. COLOR INTERPOLATION & SKY / GROUND / SPACE RENDERING ---
+    function lerpColor(hex1, hex2, factor) {
+      const f = Math.max(0, Math.min(1, factor));
+      const c1 = parseInt(hex1.slice(1), 16);
+      const c2 = parseInt(hex2.slice(1), 16);
+      const r = Math.round(((c1 >> 16) & 255) * (1 - f) + ((c2 >> 16) & 255) * f);
+      const g = Math.round(((c1 >> 8) & 255) * (1 - f) + ((c2 >> 8) & 255) * f);
+      const b = Math.round((c1 & 255) * (1 - f) + (c2 & 255) * f);
+      return `rgb(${r},${g},${b})`;
+    }
+
+    function drawSkyAndEnvironment(t) {
+      // Altitude factor based on camera Y (0 at ground, ~3000 in space)
+      const altitudePx = Math.max(0, -cam.y);
+
+      let topCol, botCol;
+      if (altitudePx < 900) {
+        // Zone 1: Sunny Sky to High Blue Sky
+        const f = altitudePx / 900;
+        topCol = lerpColor('#2563eb', '#1d4ed8', f);
+        botCol = lerpColor('#93c5fd', '#38bdf8', f);
+      } else if (altitudePx < 1800) {
+        // Zone 2: High Sky to Sunset Stratosphere
+        const f = (altitudePx - 900) / 900;
+        topCol = lerpColor('#1d4ed8', '#311042', f);
+        botCol = lerpColor('#38bdf8', '#f97316', f);
+      } else if (altitudePx < 2700) {
+        // Zone 3: Sunset to Deep Night / Exosphere
+        const f = (altitudePx - 1800) / 900;
+        topCol = lerpColor('#311042', '#030712', f);
+        botCol = lerpColor('#f97316', '#1e1b4b', f);
+      } else {
+        // Zone 4: Deep Outer Space
+        topCol = '#02040a';
+        botCol = '#0f172a';
+      }
+
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+      skyGrad.addColorStop(0, topCol);
+      skyGrad.addColorStop(1, botCol);
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, W, H);
+
+      // 1. Stars & Planets (Fade in as we approach Sunset/Space)
+      if (altitudePx > 1100) {
+        const starAlpha = Math.min(1, (altitudePx - 1100) / 1000);
+        spaceStars.forEach(st => {
+          const twinkle = 0.4 + 0.6 * Math.abs(Math.sin(t * st.blinkSpeed + st.phase));
+          ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha * twinkle})`;
+          // Parallax vertical scroll for stars
+          const sy = ((st.ry * H + altitudePx * 0.15) % H + H) % H;
+          ctx.beginPath();
+          ctx.arc(st.rx * W, sy, st.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        // Draw Moon & Ringed Planet in Space
+        const planetY = H * 0.25 + (altitudePx - 2400) * 0.18;
+        ctx.save();
+        ctx.globalAlpha = starAlpha;
+        // Glowing Moon
+        ctx.fillStyle = '#fef08a';
+        ctx.shadowColor = '#fef08a';
+        ctx.shadowBlur = 30;
+        ctx.beginPath();
+        ctx.arc(W * 0.82, planetY, 42, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Saturn-like Planet
+        if (altitudePx > 2000) {
+          const satY = H * 0.35 + (altitudePx - 3000) * 0.22;
+          ctx.fillStyle = '#c084fc';
+          ctx.beginPath();
+          ctx.arc(W * 0.18, satY, 34, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#fde047';
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.ellipse(W * 0.18, satY, 64, 14, -0.25, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // 2. Parallax Clouds (Scroll down as camera climbs up)
+      bgClouds.forEach(c => {
+        c.offsetX += c.speed;
+        if (c.offsetX > W) c.offsetX = -W;
+        if (c.offsetX < -W) c.offsetX = W;
+
+        // Convert worldY to screenY with parallax
+        const screenX = W * 0.5 + c.offsetX - cam.x * 0.35;
+        const screenY = H * 0.78 + (c.worldY - cam.y * 0.65);
+
+        if (screenY > -150 && screenY < H + 150) {
+          ctx.save();
+          // Tint clouds based on altitude
+          if (altitudePx > 2200) {
+            ctx.fillStyle = 'rgba(139, 92, 246, 0.18)'; // Space nebula cloud
+          } else if (altitudePx > 1100) {
+            ctx.fillStyle = 'rgba(251, 146, 60, 0.32)'; // Sunset cloud
+          } else {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.45)'; // Fluffy white cloud
+          }
+          const s = c.scale;
+          ctx.beginPath();
+          ctx.arc(screenX, screenY, 38 * s, 0, Math.PI * 2);
+          ctx.arc(screenX + 30 * s, screenY - 12 * s, 30 * s, 0, Math.PI * 2);
+          ctx.arc(screenX + 60 * s, screenY, 34 * s, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      });
+
+      // 3. Ground Hills & Grass at WorldY = 0 (Scrolls down out of view as you climb!)
+      const groundScreenY = worldToScreenY(0);
+      if (groundScreenY < H + 300) {
+        // Back Green Hills
+        ctx.fillStyle = '#16a34a';
+        ctx.beginPath();
+        ctx.arc(W * 0.2 - cam.x * 0.4, groundScreenY + 90, 260, Math.PI, 0);
+        ctx.arc(W * 0.8 - cam.x * 0.4, groundScreenY + 110, 300, Math.PI, 0);
+        ctx.fill();
+
+        // Main Grass Ground
+        ctx.fillStyle = '#22c55e';
+        ctx.fillRect(0, groundScreenY, W, H - groundScreenY + 400);
+
+        // Top Grass Rim
+        ctx.fillStyle = '#4ade80';
+        ctx.fillRect(0, groundScreenY, W, 14);
+
+        // Dirt Layer Below
+        ctx.fillStyle = '#854d0e';
+        ctx.fillRect(0, groundScreenY + 35, W, H);
+      }
+    }
+
+    // Coordinate Helpers (World -> Screen)
+    function worldToScreenX(wx) {
+      return W * 0.5 + (wx - cam.x);
+    }
+    function worldToScreenY(wy) {
+      return H * 0.78 + (wy - cam.y);
+    }
+
+    // --- 7. DRAW CLOUD/STAIR PLATFORMS & STAR-POU ---
+    function drawPlatform(p, isOption = false) {
+      if (!p) return;
+      const sx = worldToScreenX(p.wx);
+      const sy = worldToScreenY(p.wy + (p.fallY || 0));
+
+      if (sy < -150 || sy > H + 150) return;
+
+      ctx.save();
+
+      // Determine platform style by status & altitude
+      let mainCol = '#ffffff';
+      let rimCol = '#94a3b8';
+
+      if (p.isStart) {
+        mainCol = '#fde047'; rimCol = '#ca8a04';
+      } else if (p.status === 'correct') {
+        mainCol = '#4ade80'; rimCol = '#15803d';
+      } else if (p.status === 'wrong') {
+        mainCol = '#f87171'; rimCol = '#b91c1c';
+      } else if (p.level >= 12) {
+        // Cosmic Space Pad
+        mainCol = '#c084fc'; rimCol = '#6b21a8';
+      } else {
+        // Fluffy Cloud Stair Pad
+        mainCol = '#f8fafc'; rimCol = '#64748b';
+      }
+
+      // Draw Fluffy Cloud Bumps underneath platform
+      ctx.fillStyle = rimCol;
+      ctx.beginPath();
+      ctx.roundRect(sx - p.w / 2, sy + 6, p.w, p.h, 16);
+      ctx.fill();
+
+      ctx.fillStyle = mainCol;
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.roundRect(sx - p.w / 2, sy, p.w, p.h, 16);
+      ctx.fill();
+      ctx.stroke();
+
+      // If this is one of the 2 active upper stair options, draw Answer Box & Left/Right prompt
+      if (isOption) {
+        const pillW = Math.max(p.w, ctx.measureText(p.text).width + 55);
+        const pillY = sy - 54;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.strokeStyle = p.status === 'correct' ? '#4ade80' : p.status === 'wrong' ? '#f87171' : '#fbbf24';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.roundRect(sx - pillW / 2, pillY, pillW, 44, 14);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '800 22px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.text, sx, pillY + 29);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 13px "Segoe UI", sans-serif';
+        ctx.fillText(p.side === 'left' ? '⬅️ LOMPAT KIRI' : 'LOMPAT KANAN ➡️', sx, sy + 21);
+      } else {
+        // Visited Stair Step Label
+        ctx.fillStyle = '#0f172a';
+        ctx.font = '900 14px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(p.isStart ? 'START (0m)' : `TANGGA ${p.level} (${p.level * 100}m)`, sx, sy + 20);
+      }
+
+      ctx.restore();
+    }
+
+    function drawStarPou(t) {
+      const sx = worldToScreenX(star.wx);
+      const sy = worldToScreenY(star.wy);
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(star.rotation);
+
+      const bounce = star.state === 'idle' ? Math.sin(t * 0.008) * 0.06 : 0;
+      ctx.scale(star.scaleX + bounce, star.scaleY - bounce);
+
+      // 5-Pointed Chubby Star Body
+      const outerR = 45;
+      const innerR = 25;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const r = i % 2 === 0 ? outerR : innerR;
+        const angle = (i * Math.PI) / 5 - Math.PI / 2;
+        const px = Math.cos(angle) * r;
+        const py = Math.sin(angle) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+
+      const grad = ctx.createRadialGradient(-8, -10, 5, 0, 0, outerR);
+      grad.addColorStop(0, '#fef08a');
+      grad.addColorStop(0.6, '#facc15');
+      grad.addColorStop(1, '#eab308');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#0f172a';
+      ctx.stroke();
+
+      // Pou Eyes
+      if (star.expression === 'dizzy') {
+        ctx.font = '900 16px sans-serif';
+        ctx.fillStyle = '#0f172a';
+        ctx.textAlign = 'center';
+        ctx.fillText('✖   ✖', 0, -2);
+      } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(-10, -6, 7, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(10, -6, 7, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.beginPath(); ctx.arc(-10, -6, 3.8, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(10, -6, 3.8, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath(); ctx.arc(-11.5, -8, 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(8.5, -8, 1.5, 0, Math.PI * 2); ctx.fill();
+      }
+
+      // Blush Cheeks
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.45)';
+      ctx.beginPath(); ctx.ellipse(-18, 4, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(18, 4, 5, 3, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Pou Mouth
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      if (star.expression === 'jump') {
+        ctx.fillStyle = '#991b1b';
+        ctx.arc(0, 8, 5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+      } else if (star.expression === 'win') {
+        ctx.fillStyle = '#ef4444';
+        ctx.arc(0, 5, 9, 0, Math.PI);
+        ctx.fill(); ctx.stroke();
+      } else if (star.expression === 'dizzy') {
+        ctx.arc(0, 13, 6, Math.PI, 0);
+        ctx.stroke();
+      } else {
+        ctx.arc(0, 4, 7, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
+    function spawnConfetti(wx, wy, baseColor) {
+      const colors = [baseColor, '#fbbf24', '#38bdf8', '#f472b6', '#ffffff'];
+      for (let i = 0; i < 30; i++) {
+        particles.push({
+          wx, wy,
+          vx: (Math.random() - 0.5) * 12,
+          vy: -Math.random() * 10 - 2,
+          size: 6 + Math.random() * 6,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          life: 1
+        });
+      }
+    }
+
+    // --- 8. MAIN ANIMATION LOOP ---
+    function animate(t) {
+      requestAnimationFrame(animate);
+
+      // Smooth Camera Tracking (Follows current climbed stair)
+      cam.x += (cam.targetX - cam.x) * 0.08;
+      cam.y += (cam.targetY - cam.y) * 0.08;
+
+      // 1. Draw Dynamic Sky, Ground, Clouds & Space
+      drawSkyAndEnvironment(t);
+
+      // 2. Draw Dashed Jump Trajectory Guides from current base to next stairs
+      if (currentBasePlat && leftOptionPlat && rightOptionPlat && star.state === 'idle') {
+        const bx = worldToScreenX(currentBasePlat.wx);
+        const by = worldToScreenY(currentBasePlat.wy);
+        const lx = worldToScreenX(leftOptionPlat.wx);
+        const ly = worldToScreenY(leftOptionPlat.wy);
+        const rx = worldToScreenX(rightOptionPlat.wx);
+        const ry = worldToScreenY(rightOptionPlat.wy);
+
+        ctx.save();
+        ctx.setLineDash([8, 8]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(lx, by - 170, lx, ly);
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(rx, by - 170, rx, ry);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 3. Draw Past Climbed Stairs & Current Next Options
+      letitedPlatforms.forEach(p => drawPlatform(p, false));
+      drawPlatform(leftOptionPlat, true);
+      drawPlatform(rightOptionPlat, true);
+
+      // 4. Update Star-Pou Jump / Fall Physics
+      star.scaleX += (1 - star.scaleX) * 0.15;
+      star.scaleY += (1 - star.scaleY) * 0.15;
+
+      if (star.state === 'jumping') {
+        star.progress += 0.055;
+        if (star.progress >= 1) {
+          star.progress = 1;
+          star.wx = star.targetX;
+          star.wy = star.targetY;
+          onLandOnPlatform(star.chosenPlat);
+        } else {
+          const p = star.progress;
+          star.wx = star.startX + (star.targetX - star.startX) * p;
+          const linearY = star.startY + (star.targetY - star.startY) * p;
+          const arcHeight = -140 * 4 * p * (1 - p);
+          star.wy = linearY + arcHeight;
+        }
+      } else if (star.state === 'celebrating') {
+        star.wy = star.targetY - Math.abs(Math.sin(t * 0.018)) * 16;
+      } else if (star.state === 'falling') {
+        star.vy += 0.75;
+        star.wy += star.vy;
+        star.rotation += 0.14;
+        if (star.chosenPlat) star.chosenPlat.fallY += Math.max(0, star.vy * 0.9);
+      }
+
+      // 5. Draw Star-Pou
+      drawStarPou(t);
+
+      // 6. Update & Draw Confetti Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const pt = particles[i];
+        pt.wx += pt.vx;
+        pt.wy += pt.vy;
+        pt.vy += 0.35;
+        pt.life -= 0.022;
+        if (pt.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        ctx.fillStyle = pt.color;
+        ctx.globalAlpha = pt.life;
+        ctx.fillRect(worldToScreenX(pt.wx), worldToScreenY(pt.wy), pt.size, pt.size);
+        ctx.globalAlpha = 1;
+      }
+
+      // 7. Update & Draw Floating Texts
+      for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const ft = floatingTexts[i];
+        ft.wy -= 1.8;
+        ft.alpha -= 0.02;
+        if (ft.alpha <= 0) {
+          floatingTexts.splice(i, 1);
+          continue;
+        }
+        ctx.save();
+        ctx.globalAlpha = ft.alpha;
+        ctx.font = '900 28px "Segoe UI", sans-serif';
+        ctx.fillStyle = ft.color;
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 5;
+        ctx.textAlign = 'center';
+        const sx = worldToScreenX(ft.wx);
+        const sy = worldToScreenY(ft.wy);
+        ctx.strokeText(ft.text, sx, sy);
+        ctx.fillText(ft.text, sx, sy);
+        ctx.restore();
+      }
+    }
+
+    requestAnimationFrame(animate);
+  
+// ================= VS CLIENT =================
+const VS = {
+  enabled: false, code: null, teamId: null, teamName: null, isHost: false,
+  ws: null, lb: [],
+  getWsUrl(){
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = location.hostname;
+    // dev: localhost:3001 ; prod: sev7en.cerap.web.id -> wss://sev7en.cerap.web.id/ws via nginx proxy (fallback port 3001)
+    const isLocal = host === 'localhost' || host === '127.0.0.1';
+    if(isLocal) return 'ws://localhost:3001/ws';
+    return proto + '//' + host + '/vs-ws';
+  }
+};
+
+function vsConnect(){
+  if(VS.ws && VS.ws.readyState===1) return;
+  const url = VS.getWsUrl();
+  const ws = new WebSocket(url);
+  VS.ws = ws;
+  ws.onopen = ()=> console.log('[VS] ws open', url);
+  ws.onclose = ()=> { console.log('[VS] ws closed'); if(VS.enabled && VS.code) setTimeout(vsConnect, 2000); };
+  ws.onerror = ()=> {};
+  ws.onmessage = (ev)=>{
+    let msg; try{ msg=JSON.parse(ev.data);}catch{return;}
+    if(msg.type==='room_created'){
+      VS.code = msg.code; VS.isHost = true;
+      document.getElementById('vs-code-display').textContent = VS.code;
+      document.getElementById('vs-share-link').textContent = location.origin + '/game.html?code=' + VS.code + '#join';
+      document.getElementById('vs-create-result').style.display='block';
+      document.getElementById('vs-create-err').style.display='none';
+      vsShowBar(msg.room);
+    } else if(msg.type==='joined'){
+      VS.code = msg.code; VS.teamId = msg.teamId; VS.isHost = false;
+      // KUNCI waiting room — jangan balik ke menu lagi
+      const _early2=document.getElementById('early-join-hide-style'); if(_early2 && _early2.parentNode) _early2.parentNode.removeChild(_early2);
+      document.getElementById('modal').style.display='none';
+      document.getElementById('vs-modal').style.display='flex';
+      document.getElementById('vs-card-create').style.display='none';
+      document.getElementById('vs-card-join').style.display='block';
+      const _jc=document.getElementById('vs-join-code'); if(_jc) _jc.style.display='none';
+      const _jn=document.getElementById('vs-join-name'); if(_jn) _jn.style.display='none';
+      const _jb=document.querySelector('#vs-card-join .vs-btn-primary'); if(_jb) _jb.style.display='none';
+      const _jt=document.querySelector('#vs-card-join .vs-btn-ghost'); if(_jt) _jt.textContent='Keluar Lobby';
+      document.getElementById('vs-join-lobby').style.display='block';
+      document.getElementById('vs-join-status').textContent = 'kamu di lobby ('+VS.code+') — menunggu host memulai…';
+      document.getElementById('vs-join-err').style.display='none';
+      vsShowBar(msg.room);
+      renderLobbyGuest(msg.room);
+    } else if(msg.type==='room_update'){
+      if(VS.isHost) renderLobbyHost(msg.room);
+      else renderLobbyGuest(msg.room);
+      vsShowBar(msg.room);
+    } else if(msg.type==='game_start'){
+      vsHandleGameStart(msg);
+    } else if(msg.type==='leaderboard'){
+      VS.lb = msg.teams;
+      renderLeaderboard(msg.teams);
+    } else if(msg.type==='game_end'){
+      endGame();
+    } else if(msg.type==='error'){
+      const isCreate = VS.isHost || !VS.teamId;
+      const el = isCreate ? document.getElementById('vs-create-err') : document.getElementById('vs-join-err');
+      if(el){ el.textContent = msg.message; el.style.display='block'; }
+      else alert(msg.message);
+      const _bj=document.querySelector('#vs-card-join .vs-btn-primary'); if(_bj){ _bj.textContent='Join Lobby'; _bj.disabled=false; _bj.style.display=''; }
+    }
+  };
+}
+
+function vsShowBar(room){
+  const bar = document.getElementById('vs-bar'); if(!bar) return;
+  bar.style.display='flex';
+  document.getElementById('vs-code-badge').textContent = 'KODE ' + (VS.code||room.code||'—');
+  document.getElementById('vs-teams-count').textContent = (room.teams.length) + ' tim';
+  const lb = document.getElementById('vs-leaderboard'); if(lb) lb.style.display='block';
+}
+
+function renderLobbyHost(room){
+  const el=document.getElementById('vs-lobby-host'); if(!el) return;
+  el.innerHTML = room.teams.map(t=>`<div class="vs-lobby-team"><span>${t.name}</span><span style="color:#16a34a">${t.score} pts</span></div>`).join('') || '<p style="color:#64748b">Belum ada tim join. Share kode!</p>';
+}
+function renderLobbyGuest(room){
+  const el=document.getElementById('vs-lobby-guest'); if(!el) return;
+  el.innerHTML = room.teams.map(t=>`<div class="vs-lobby-team"><span>${t.name}${t.id===VS.teamId?' (kamu)':''}</span><span>${t.floor} tangga</span></div>`).join('');
+}
+function renderLeaderboard(teams){
+  const el=document.getElementById('vs-lb-list'); if(!el) return;
+  el.innerHTML = teams.slice(0,10).map((t,i)=>{
+    const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+    const isMe = t.id===VS.teamId;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:8px;background:${isMe?'rgba(59,130,246,.18)':'rgba(255,255,255,.06)'};margin-bottom:4px;border:${isMe?'1px solid #3b82f6':'1px solid transparent'}"><span><b>${medal}</b> ${t.name}</span><span style="font-weight:900;color:#fbbf24">${t.score} <small style="color:#93c5fd">${t.floor}m</small></span></div>`;
+  }).join('');
+}
+
+function vsOpenCreate(){ 
+  const main=document.getElementById('modal'); if(main) main.style.display='none';
+  document.getElementById('vs-modal').style.display='flex'; 
+  document.getElementById('vs-card-create').style.display='block'; 
+  document.getElementById('vs-card-join').style.display='none'; 
+  const u=new URLSearchParams(location.search); if(u.get('code')) document.getElementById('vs-join-code').value=u.get('code').toUpperCase(); 
+  vsConnect(); 
+}
+function vsOpenJoin(){ 
+  const _early=document.getElementById('early-join-hide-style'); if(_early && _early.parentNode) _early.parentNode.removeChild(_early);
+  const main=document.getElementById('modal'); if(main) main.style.display='none';
+  document.getElementById('vs-modal').style.display='flex'; 
+  document.getElementById('vs-card-create').style.display='none'; 
+  document.getElementById('vs-card-join').style.display='block'; 
+  // reset waiting UI biar tiap buka fresh
+  const _jc=document.getElementById('vs-join-code'); if(_jc) _jc.style.display='';
+  const _jn=document.getElementById('vs-join-name'); if(_jn) _jn.style.display='';
+  const _jb=document.querySelector('#vs-card-join .vs-btn-primary'); if(_jb) _jb.style.display='';
+  const _jl=document.getElementById('vs-join-lobby'); if(_jl) _jl.style.display='none';
+  document.getElementById('vs-join-err').style.display='none';
+  const u=new URLSearchParams(location.search); if(u.get('code')) document.getElementById('vs-join-code').value=u.get('code').toUpperCase(); 
+  vsConnect(); 
+}
+function vsClose(){ 
+  // Kalau sudah join (teamId ada) jangan balik ke menu — tetap di waiting room
+  if(VS.teamId){
+    const l=document.getElementById('vs-join-lobby');
+    if(l && l.style.display!=='none'){ return; }
+    // kalau sudah join tapi lobby belum kebuka, jangan reveal menu
+    return;
+  }
+  const vs=document.getElementById('vs-modal'); if(vs) vs.style.display='none';
+  const main=document.getElementById('modal'); if(main && !VS.enabled) main.style.display='flex';
+}
+window.vsOpenCreate=vsOpenCreate; window.vsOpenJoin=vsOpenJoin; window.vsClose=vsClose;
+// patch: ensure both cards toggling right
+window.vsCopyLink = ()=>{
+  const link = document.getElementById('vs-share-link').textContent;
+  if(navigator.clipboard) navigator.clipboard.writeText(link);
+  alert('Link disalin: ' + link);
+};
+window.vsCreateRoom = ()=>{
+  vsConnect();
+  const send = ()=>{
+    if(VS.ws.readyState!==1) return setTimeout(send,200);
+    VS.ws.send(JSON.stringify({type:'create_room', adminPassword: document.getElementById('vs-admin-pass').value, materi: document.getElementById('vs-materi').value, duration: document.getElementById('vs-duration').value}));
+  };
+  setTimeout(send, 300);
+};
+window.vsJoinRoom = ()=>{
+  const code = document.getElementById('vs-join-code').value.trim().toUpperCase();
+  const name = document.getElementById('vs-join-name').value.trim();
+  const errEl=document.getElementById('vs-join-err');
+  const btn=document.querySelector('#vs-card-join .vs-btn-primary');
+  if(!code || !name){ errEl.textContent='Kode & nama tim wajib'; errEl.style.display='block'; return; }
+  if(code.length!==6){ errEl.textContent='Kode harus 6 huruf'; errEl.style.display='block'; return; }
+  VS.teamName = name;
+  if(btn){ btn.textContent='Masuk…'; btn.disabled=true; }
+  errEl.style.display='none';
+  errEl.textContent='';
+  vsConnect();
+  const send=()=>{
+    if(!VS.ws || VS.ws.readyState!==1) return setTimeout(send,200);
+    try{ VS.ws.send(JSON.stringify({type:'join_room', code, teamName: name})); }catch(e){ if(btn){btn.textContent='Join Lobby'; btn.disabled=false;} errEl.textContent='Gagal konek — coba lagi'; errEl.style.display='block';}
+  };
+  setTimeout(send,300);
+  // safety re-enable kalau 4 detik gak ada balasan
+  setTimeout(()=>{ if(btn && !VS.teamId){ btn.textContent='Join Lobby'; btn.disabled=false; }}, 4000);
+};
+window.vsStartGame = ()=>{
+  if(VS.ws) VS.ws.send(JSON.stringify({type:'start_game'}));
+};
+
+function vsHandleGameStart(msg){
+  VS.enabled = true;
+  document.getElementById('vs-modal').style.display='none';
+  document.getElementById('modal').style.display='none';
+  // Override topic+duration for VS so semua sinkron tapi soal acak per tim nanti di spawnNextStairOptions via seed
+  const materi = msg.materi || 'all';
+  // Set UI selects to match
+  const selM = document.getElementById('topic-select'); if(selM) selM.value = materi;
+  const selD = document.getElementById('duration-select'); if(selD) selD.value = String(msg.duration);
+  // Mulai game: reuse existing startGame but patch shuffle seed per team
+  // Keep team name
+  const inp = document.getElementById('team-input');
+  if(VS.teamName && inp) inp.value = VS.teamName;
+  else if(!VS.isHost && inp && !VS.teamName) VS.teamName = inp.value.trim() || 'TIM';
+  // VS uses same startGame but we acak opsi: hook via flag
+  window._vsMateri = materi;
+  startGame();
+}
+
+// Hook score: whenever score/floor changes in VS, push to server
+// We wrap updateHUD and onLandOnPlatform tail
+const _origUpdateHUD = updateHUD;
+updateHUD = function(){
+  _origUpdateHUD();
+  if(VS.enabled && VS.ws && VS.ws.readyState===1){
+    // throttle: only send every 400ms
+    const now = Date.now();
+    if(!VS._lastPush || now - VS._lastPush > 400){
+      VS._lastPush = now;
+      VS.ws.send(JSON.stringify({type:'score_update', score: (typeof score!=='undefined'?score:0), floor: (typeof floorLevel!=='undefined'?floorLevel:0), streak: (typeof streak!=='undefined'?streak:0)}));
+    }
+    const lbT = document.getElementById('vs-lb-timer');
+    if(lbT && typeof timeLeft!=='undefined' && timeLeft<9000){
+      const m=String(Math.floor(timeLeft/60)).padStart(2,'0'); const s=String(timeLeft%60).padStart(2,'0');
+      lbT.textContent = m+':'+s;
+    }
+  }
+};
+// Auto-fill join code from URL
+(function(){
+  const u=new URLSearchParams(location.search);
+  const c=u.get('code');
+  if(c){ const el=document.getElementById('vs-join-code'); if(el) el.value=c.toUpperCase(); }
+})();
+
+</script>
+
+<script>
+// Robust auto-join: #join or ?code=XXXXXX -> buka lobby input kode (bukan langsung main)
+(function(){
+  function tryOpen(){
+    const params=new URLSearchParams(location.search);
+    const codeFromQuery=params.get('code');
+    const teamFromQuery=params.get('team');
+    const wantsJoin=location.hash.indexOf('join')>=0 || !!codeFromQuery;
+    if(!wantsJoin) return;
+    if(typeof vsOpenJoin==='function'){
+      vsOpenJoin();
+      if(codeFromQuery){
+        const el=document.getElementById('vs-join-code');
+        if(el) el.value=codeFromQuery.toUpperCase();
+      }
+      if(teamFromQuery){
+        const en=document.getElementById('vs-join-name');
+        if(en) en.value=teamFromQuery;
+        // kalau dari landing (code+team lengkap) auto-join biar langsung waiting room tanpa klik lagi
+        setTimeout(()=>{ if(typeof vsJoinRoom==='function'){ try{ vsJoinRoom(); }catch(e){} } }, 500);
+      }
+    } else {
+      setTimeout(tryOpen, 100);
+    }
+  }
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', tryOpen);
+  } else {
+    setTimeout(tryOpen, 200);
+  }
+  window.addEventListener('hashchange',()=>{
+    if(location.hash.indexOf('join')>=0 && typeof vsOpenJoin==='function') vsOpenJoin();
+  });
+})();
+</script>
+</body>
+</html>

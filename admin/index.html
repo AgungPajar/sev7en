@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin · Sev7en Club</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/lucide@latest/dist/umd/lucide.svg">
+<style>
+:root{
+  --bg:#0a0f1e;
+  --side:#0d1424;
+  --card:#121b2d;
+  --card-hover:#162238;
+  --ink:#f1f5f9;
+  --muted:#8b99ab;
+  --line:rgba(148,163,184,.12);
+  --gold:#fbbf24;
+  --gold-2:#f59e0b;
+  --blue:#3b82f6;
+  --green:#22c55e;
+  --red:#ef4444;
+  --radius:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex}
+/* ===== Sidebar ===== */
+.side{
+  width:232px;flex:none;background:var(--side);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:18px 16px;position:sticky;top:0;height:100vh;
+}
+.side .brand{display:flex;align-items:center;gap:11px;padding:0 6px;margin-bottom:28px}
+.logo-sm{width:40px;height:40px;flex:none;border-radius:12px;background:linear-gradient(135deg,#fbbf24,#f97316);display:flex;align-items:center;justify-content:center}
+.brand-text h1{font-family:'Space Grotesk',sans-serif;font-size:17px;color:#fff;letter-spacing:-.2px;line-height:1.1}
+.brand-text small{color:var(--muted);font-size:11px;letter-spacing:.8px;text-transform:uppercase}
+.side nav{display:grid;gap:6px;margin-top:6px}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:12px;color:var(--muted);
+  font-weight:600;font-size:14px;cursor:pointer;border:1px solid transparent;transition:.15s;
+  -webkit-user-select:none;user-select:none;
+}
+.nav-item:hover{color:var(--ink);background:rgba(148,163,184,.07)}
+.nav-item.active{color:var(--ink);background:var(--card);border-color:var(--line)}
+.nav-item .lucide{width:17px;height:17px}
+.side-foot{margin-top:auto;display:grid;gap:6px}
+.side-foot .nav-item{color:#c0c9d6}
+
+/* ===== Main ===== */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;justify-content:space-between;padding:18px 28px;border-bottom:1px solid var(--line);gap:12px;flex-wrap:wrap}
+.top h2{font-family:'Space Grotesk',sans-serif;font-size:20px;font-weight:700;color:#fff}
+.top .crumb{color:var(--muted);font-size:12.5px}
+.pill{display:inline-flex;align-items:center;gap:7px;background:rgba(148,163,184,.1);border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:600;color:#cbd5e1}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
+.content{padding:26px 28px 60px;max-width:1180px;width:100%}
+
+/* ===== Cards ===== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:18px}
+.card h3{font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:600;color:#fff;display:flex;align-items:center;gap:9px;margin-bottom:6px}
+.card .desc{color:var(--muted);font-size:13px;line-height:1.55;margin-bottom:16px}
+label{font-size:11px;font-weight:700;letter-spacing:.7px;color:var(--muted);text-transform:uppercase;display:block;margin:0 0 6px}
+input,select{
+  width:100%;padding:11px 13px;border-radius:12px;border:1px solid rgba(148,163,184,.28);
+  background:#0b1120;color:#fff;font-size:14px;font-weight:600;outline:none;transition:border-color .14s, box-shadow .14s;
+}
+input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(251,191,36,.13)}
+select option{background:#0b1120}
+button{padding:11px 16px;border:0;border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .12s, filter .12s}
+button:active{transform:translateY(1px)}
+.btn-gold{background:linear-gradient(135deg,#f59e0b,#ea580c);color:#0f172a}
+.btn-blue{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+.btn-blue:hover{filter:brightness(1.08)}
+.btn-ghost{background:rgba(148,163,184,.1);color:#cbd5e1;border:1px solid var(--line)}
+.btn-ghost:hover{background:rgba(148,163,184,.18)}
+.btn-green{background:linear-gradient(135deg,#22c55e,#15803d);color:#fff}
+.row{display:flex;gap:14px;flex-wrap:wrap}
+.f1{flex:1 1 220px}
+.err{color:#f87171;font-weight:600;font-size:13px;margin-top:8px;display:none}
+.good{color:#4ade80;font-weight:600;font-size:13px;margin-top:8px}
+
+/* ===== Room view ===== */
+.room-hero{display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-bottom:20px}
+.code-box{
+  background:#0b1120;border:2px dashed rgba(251,191,36,.55);border-radius:18px;
+  padding:20px 28px;text-align:center;
+}
+.code-box .lbl{font-size:11px;font-weight:700;letter-spacing:1.4px;color:var(--gold);text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:6px;margin-bottom:6px}
+.code-box .code{font-family:'JetBrains Mono',monospace;font-size:40px;font-weight:700;letter-spacing:10px;color:#fbbf24;user-select:text}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:820px){.grid-2{grid-template-columns:1fr}}
+.team-item{
+  display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:12px;
+  background:#0b1120;border:1px solid var(--line);margin-bottom:8px;
+}
+.team-item .rank{width:26px;height:26px;flex:none;border-radius:9px;background:rgba(148,163,184,.13);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;color:var(--gold)}
+.team-item .nm{flex:1;font-weight:600;font-size:14px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-item .pts{font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums}
+.lb-top{border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.05)}
+.empty{color:#5b6b83;font-size:13px;padding:14px 0;display:flex;align-items:center;gap:8px}
+.badge-status{
+  display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;letter-spacing:.5px;
+  border-radius:999px;padding:6px 13px;text-transform:uppercase;
+}
+.badge-lobby{background:rgba(59,130,246,.12);color:#60a5fa;border:1px solid rgba(59,130,246,.35)}
+.badge-play{background:rgba(34,197,94,.12);color:#4ade80;border:1px solid rgba(34,197,94,.35)}
+.badge-end{background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid var(--line)}
+.conn{font-size:12px;color:#4ade80;font-weight:600;margin-top:12px;display:flex;align-items:center;gap:6px}
+.conn.red{color:#f87171}
+.side-hide{display:none}
+@media(max-width:640px){
+  .side{display:none}
+  .side-hide{display:flex}
+}
+</style>
+</head>
+<body>
+<!-- Sidebar -->
+<aside class="side">
+  <div class="brand">
+    <div class="logo-sm"><span data-lucide="rocket" style="width:20px;height:20px;color:#0f172a"></span></div>
+    <div class="brand-text"><h1>Sev7en Club</h1><small>Admin Console</small></div>
+  </div>
+  <nav>
+    <div class="nav-item active"><span data-lucide="layout-dashboard"></span> Dashboard</div>
+    <div class="nav-item" onclick="location='/'"><span data-lucide="arrow-left"></span> Kembali ke Menu</div>
+    <div class="nav-item" onclick="location='/game.html'"><span data-lucide="gamepad-2"></span> Game</div>
+  </nav>
+  <div class="side-foot">
+    <div class="nav-item"><span data-lucide="shield-check"></span> Password: <code style="color:var(--gold)">admin</code></div>
+  </div>
+</aside>
+
+<main class="main">
+  <header class="top">
+    <div>
+      <h2> Panel Admin</h2>
+      <div class="crumb">Buat room → bagikan kode 6 huruf → tim gabung → mulai mabar. Maks 10 tim, soal diacak tiap tim.</div>
+    </div>
+    <button class="btn-ghost side-hide" onclick="location='/'"><span data-lucide="arrow-left"></span> Menu</button>
+  </header>
+
+  <div class="content">
+
+    <!-- Login / Create -->
+    <div class="card" id="loginCard">
+      <h3><span data-lucide="plus-circle" style="color:var(--gold)"></span> Buat Room Baru</h3>
+      <p class="desc">Atur materi &amp; durasi, ketik password admin, lalu generate kode room untuk dibagikan.</p>
+      <div class="row">
+        <div class="f1"><label>Materi</label>
+          <select id="materi">
+            <option value="all">Semua Materi (Campuran)</option>
+            <option value="there_prep"> There is/are &amp; Ruangan</option>
+            <option value="food_kitchen"> Food &amp; Kitchen</option>
+            <option value="continuous_hobby"> Present Continuous + Hobby</option>
+            <option value="routine_transport"> Routine + Transport</option>
+          </select>
+        </div>
+        <div class="f1"><label>Durasi</label>
+          <select id="duration">
+            <option value="180" selected> 3 Menit</option>
+            <option value="300"> 5 Menit</option>
+            <option value="600"> 10 Menit</option>
+            <option value="9000"> Tanpa Batas</option>
+          </select>
+        </div>
+        <div class="f1"><label>Password Admin</label><input id="adminPass" type="password" placeholder="admin"/></div>
+      </div>
+      <div style="margin-top:16px" class="row">
+        <button class="btn-gold" id="btnCreate"><span data-lucide="sparkles"></span>  Buat Room + Dapatkan Kode</button>
+        <button class="btn-ghost" onclick="location='/'">Batal</button>
+      </div>
+      <p class="err" id="errCreate"></p>
+      <div class="conn" id="liveInfo" style="display:none"></div>
+    </div>
+
+    <!-- Room Live -->
+    <div class="card" id="roomCard" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <h3><span data-lucide="radio" style="color:var(--gold)"></span> Room Aktif</h3>
+        <span class="badge-status badge-lobby" id="statusBadge">Lobby</span>
+      </div>
+
+      <div class="room-hero">
+        <div class="code-box">
+          <div class="lbl"><span data-lucide="key-round" style="width:13px;height:13px"></span> Kode Room</div>
+          <div class="code" id="codeEl">— — — — — —</div>
+        </div>
+        <div style="flex:1;min-width:240px">
+          <p class="desc" style="margin-bottom:12px">Tim buka <b style="color:#fff">sev7en.cerap.web.id</b> → <b style="color:var(--gold)">Gabung Room</b> → masukin kode ini. Mereka bakal nunggu di lobby sampai lo pencet Mulai.</p>
+          <div class="row">
+            <button class="btn-ghost" onclick="copyCode()"><span data-lucide="copy"></span> Salin Kode</button>
+            <button class="btn-ghost" onclick="copyLink()"><span data-lucide="link"></span> Salin Link</button>
+            <button class="btn-green" id="btnStart" style="margin-left:auto"><span data-lucide="play"></span> MULAI MABAR</button>
+          </div>
+          <p class="err" id="errStart"></p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <label>Tim yang Sudah Join (<span id="teamCount">0</span>/10)</label>
+          <div id="teamList"></div>
+          <div class="empty" id="teamEmpty"><span data-lucide="users" style="width:15px;height:15px"></span> Menunggu tim join… bagikan kode!</div>
+        </div>
+        <div id="lbWrap" style="display:none">
+          <label> Leaderboard Live</label>
+          <div id="lb"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+(function(){ if(window.lucide) try{ lucide.createIcons(); }catch(e){} })();
+
+const WS_URL = (location.hostname==='localhost'||location.hostname==='127.0.0.1')
+  ? 'ws://localhost:3001/ws' : ((location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/vs-ws');
+
+let ws=null, roomCode=null, isHost=false, teams=[];
+
+function setErr(id,msg){
+  const el=document.getElementById(id);
+  if(!el) return;
+  if(msg){ el.textContent=msg; el.style.display='block'; } else el.style.display='none';
+}
+
+function connInfo(text, ok){
+  const el=document.getElementById('liveInfo');
+  if(!el) return;
+  el.style.display='flex';
+  el.className='conn'+(ok?'':' red');
+  el.textContent = ok ? ('✓ '+text) : ('✗ '+text);
+}
+
+function connectWS(onOpen){
+  if(ws && ws.readyState===1){ if(onOpen) onOpen(); return; }
+  ws=new WebSocket(WS_URL);
+  ws.onopen=()=>{ connInfo('Terhubung ke server realtime', true); if(onOpen) onOpen(); };
+  ws.onclose=()=>{ connInfo('Terputus. Coba refresh.', false); };
+  ws.onerror=()=>{ connInfo('Error koneksi WS.', false); };
+  ws.onmessage=(ev)=>{
+    let m; try{ m=JSON.parse(ev.data);}catch{return;}
+    if(m.type==='room_created'){
+      roomCode=m.code; isHost=true;
+      document.getElementById('codeEl').textContent=roomCode.split('').join(' ');
+      document.getElementById('roomCard').style.display='block';
+      document.getElementById('statusBadge').className='badge-status badge-lobby';
+      document.getElementById('statusBadge').textContent='Lobby';
+      setErr('errCreate','');
+      renderTeams(m.room.teams);
+      window.scrollTo({top:0,behavior:'smooth'});
+    } else if(m.type==='room_update'){
+      renderTeams(m.room.teams);
+    } else if(m.type==='leaderboard'){
+      teams=m.teams||[];
+      document.getElementById('lbWrap').style.display='block';
+      const lb=document.getElementById('lb');
+      lb.innerHTML=teams.map((t,i)=>{
+        const medal=i===0?'<span style="color:#fbbf24">🥇</span>':i===1?'🥈':i===2?'🥉':(i+1)+'.';
+        return `<div class="team-item ${i===0?'lb-top':''}"><span class="rank">${medal}</span><span class="nm">${t.name}</span><span class="pts">${t.score}</span></div>`;
+      }).join('') || '<div class="empty">Belum ada data.</div>';
+    } else if(m.type==='game_start'){
+      document.getElementById('statusBadge').className='badge-status badge-play';
+      document.getElementById('statusBadge').textContent='▶ Sedang bermain';
+    } else if(m.type==='game_end'){
+      document.getElementById('statusBadge').className='badge-status badge-end';
+      document.getElementById('statusBadge').textContent='■ Selesai';
+    } else if(m.type==='error'){
+      setErr('errCreate',m.message);
+      setErr('errStart',m.message);
+    }
+  };
+}
+
+function renderTeams(list){
+  document.getElementById('teamCount').textContent=list.length;
+  const empty=document.getElementById('teamEmpty');
+  const tl=document.getElementById('teamList');
+  if(empty) empty.style.display = list.length ? 'none':'flex';
+  tl.innerHTML=list.map((t,i)=>`
+    <div class="team-item">
+      <span class="rank">${i+1}</span>
+      <span class="nm">${t.name}</span>
+      <span class="pts">${t.score} pts</span>
+    </div>`).join('');
+}
+
+document.getElementById('btnCreate').onclick=()=>{
+  setErr('errCreate','');
+  const adminPassword=document.getElementById('adminPass').value;
+  const materi=document.getElementById('materi').value;
+  const duration=document.getElementById('duration').value;
+  if(!adminPassword){ setErr('errCreate','Isi password admin'); return; }
+  connectWS(()=>{
+    ws.send(JSON.stringify({type:'create_room', adminPassword, materi, duration}));
+  });
+};
+
+document.getElementById('btnStart').onclick=()=>{
+  if(!ws || ws.readyState!==1) return;
+  ws.send(JSON.stringify({type:'start_game'}));
+};
+
+function copyCode(){ if(roomCode && navigator.clipboard) navigator.clipboard.writeText(roomCode).then(()=>alert('Kode disalin: '+roomCode)); else if(roomCode) alert('Kode: '+roomCode); }
+function copyLink(){
+  if(!roomCode) return;
+  const url=location.protocol+'//'+location.host+'/game.html?code='+roomCode+'#join';
+  if(navigator.clipboard) navigator.clipboard.writeText(url).then(()=>alert('Link disalin:\n'+url)); else alert(url);
+}
+
+connectWS();
+</script>
+</body>
+</html>

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sev7en Club · Star-Pou Sky Climber</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/lucide@latest/dist/umd/lucide.svg">
+<style>
+:root{
+  --bg:#0a0f1e;
+  --card:#111827;
+  --card-2:#0f172a;
+  --ink:#f1f5f9;
+  --muted:#94a3b8;
+  --line:rgba(148,163,184,.14);
+  --gold:#fbbf24;
+  --gold-2:#f59e0b;
+  --blue:#3b82f6;
+  --blue-2:#2563eb;
+  --indigo:#6366f1;
+  --violet:#8b5cf6;
+  --green:#22c55e;
+  --radius:20px;
+  --shadow:0 24px 60px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Inter',system-ui,sans-serif;
+  min-height:100vh;color:var(--ink);
+  background:
+    radial-gradient(1100px 520px at 85% -12%, rgba(59,130,246,.14), transparent 60%),
+    radial-gradient(900px 480px at 8% 118%, rgba(139,92,246,.12), transparent 60%),
+    var(--bg);
+  display:flex;align-items:center;justify-content:center;overflow-x:hidden;
+}
+.stars{position:fixed;inset:0;pointer-events:none;z-index:0}
+.star{position:absolute;background:#fff;border-radius:50%;opacity:.8;animation:tw 3.2s ease-in-out infinite}
+@keyframes tw{0%,100%{opacity:.15;transform:scale(.8)}50%{opacity:.9;transform:scale(1.15)}}
+.wrap{width:min(460px,94vw);text-align:center;position:relative;z-index:2}
+.badge{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);
+  color:var(--gold);font-weight:700;font-size:12px;letter-spacing:1.6px;text-transform:uppercase;
+  padding:7px 14px;border-radius:999px;margin-bottom:18px;
+}
+.logo{
+  width:74px;height:74px;margin:0 auto 16px;border-radius:22px;
+  background:linear-gradient(135deg,#fbbf24,#f97316);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 12px 34px rgba(251,191,36,.35);
+}
+h1{
+  font-family:'Space Grotesk',sans-serif;font-size:34px;font-weight:700;letter-spacing:-.5px;
+  margin-bottom:8px;color:#fff;
+}
+h1 .sev{background:linear-gradient(135deg,#fbbf24,#f97316);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:var(--muted);font-size:14px;line-height:1.6;margin-bottom:30px}
+.menu{display:grid;gap:12px}
+.item{
+  display:flex;align-items:center;gap:16px;text-align:left;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:18px;cursor:pointer;transition:transform .16s, border-color .16s, background .16s;
+  position:relative;overflow:hidden;
+}
+.item:hover{transform:translateY(-2px);border-color:rgba(251,191,36,.5);background:var(--card-2)}
+.item:active{transform:translateY(0)}
+.item::after{
+  content:'';position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .18s;
+  background:linear-gradient(120deg,transparent,rgba(251,191,36,.06),transparent);
+}
+.item:hover::after{opacity:1}
+.ic{
+  width:50px;height:50px;flex:none;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  color:#fff;
+}
+.ic.solo{background:linear-gradient(135deg,#22c55e,#15803d)}
+.ic.room{background:linear-gradient(135deg,#3b82f6,#1d4ed8)}
+.ic.admin{background:linear-gradient(135deg,#8b5cf6,#6d28d9)}
+.item b{display:block;font-size:16px;color:#fff}
+.item small{color:var(--muted);font-size:12.5px;line-height:1.5;display:block;margin-top:2px}
+.arrow{margin-left:auto;color:#64748b;display:flex;transition:transform .16s, color .16s}
+.item:hover .arrow{color:var(--gold);transform:translateX(3px)}
+.hint{margin-top:26px;color:#5b6b83;font-size:12px;line-height:1.65}
+.hint code{background:rgba(148,163,184,.1);padding:2px 8px;border-radius:8px;color:var(--gold);font-size:11.5px;letter-spacing:1px}
+
+/* ---- Join Modal ---- */
+#joinModal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(6,10,20,.72);backdrop-filter:blur(10px);z-index:80;padding:20px}
+#joinModal.show{display:flex}
+.box{background:var(--card);width:min(420px,96vw);border-radius:24px;padding:26px;border:1px solid rgba(251,191,36,.35);box-shadow:var(--shadow)}
+.box-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.box-head .ic{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+.box h2{font-family:'Space Grotesk',sans-serif;font-size:21px;color:#fff;font-weight:700}
+.box h2 small{display:block;color:var(--muted);font-size:12px;font-weight:500;font-family:'Inter',sans-serif;margin-top:2px}
+.j-label{font-size:11.5px;font-weight:600;letter-spacing:.6px;color:var(--muted);text-transform:uppercase;margin:14px 0 6px;display:block}
+.j-input{
+  width:100%;padding:12px 14px;border-radius:13px;border:1px solid rgba(148,163,184,.3);
+  background:#0b1120;color:#fff;font-size:15px;font-weight:600;outline:none;transition:border-color .14s, box-shadow .14s;
+}
+.j-input::placeholder{color:#4b5870;font-weight:500}
+.j-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(251,191,36,.15)}
+.j-input.code{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:800;font-family:'Space Grotesk',sans-serif}
+.j-btn{
+  width:100%;padding:13px;border:0;border-radius:13px;font-weight:700;font-size:15px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:9px;margin-top:14px;transition:transform .12s, filter .12s;
+}
+.j-btn:active{transform:translateY(1px)}
+.j-primary{background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:#fff}
+.j-primary:hover{filter:brightness(1.08)}
+.j-ghost{background:rgba(148,163,184,.1);color:#cbd5e1;margin-top:8px}
+.j-ghost:hover{background:rgba(148,163,184,.18)}
+.j-err{color:#f87171;font-weight:600;font-size:13px;display:none;margin-top:10px;text-align:left}
+</style>
+</head>
+<body>
+<div class="stars" id="stars"></div>
+<div class="wrap">
+  <div class="badge"><span data-lucide="zap" style="width:13px;height:13px"></span> Mabar Kelas 3 &amp; 4 · 1 Laptop = 1 Tim</div>
+  <div class="logo"><span data-lucide="rocket" style="width:36px;height:36px;color:#0f172a"></span></div>
+  <h1><span class="sev">SEV7EN</span> CLUB</h1>
+  <p class="sub">Naikin bintang ke luar angkasa sambil adu cepat jawab Bahasa Inggris bareng satu kelas. Pilih jalanmu:</p>
+
+  <div class="menu">
+    <div class="item" onclick="location='/game.html'">
+      <div class="ic solo"><span data-lucide="gamepad-2"></span></div>
+      <div><b>Main Sendiri</b><small>Latihan solo naik tangga. Pilih materi &amp; durasi.</small></div>
+      <div class="arrow"><span data-lucide="chevron-right"></span></div>
+    </div>
+    <div class="item" onclick="openJoin()">
+      <div class="ic room"><span data-lucide="users"></span></div>
+      <div><b>Gabung Room</b><small>Masuk pakai kode dari admin, tunggu di lobby sampai mulai.</small></div>
+      <div class="arrow"><span data-lucide="chevron-right"></span></div>
+    </div>
+    <div class="item" onclick="location='admin/'">
+      <div class="ic admin"><span data-lucide="shield"></span></div>
+      <div><b>Panel Admin</b><small>Buat room, pantau tim &amp; leaderboard live.</small></div>
+      <div class="arrow"><span data-lucide="chevron-right"></span></div>
+    </div>
+  </div>
+  <p class="hint">Kode room contoh: <code>RQ7K2P</code> · soal diacak tiap tim, anti-contek cuy</p>
+</div>
+
+<div id="joinModal">
+  <div class="box">
+    <div class="box-head">
+      <div class="ic"><span data-lucide="door-open" style="width:22px;height:22px"></span></div>
+      <h2>Gabung Room<small>Kode dari admin · 1 device = 1 kelompok</small></h2>
+    </div>
+    <div>
+      <label class="j-label">Kode Room</label>
+      <input id="joinCode" class="j-input code" placeholder="RQ7K2P" maxlength="6" autocomplete="off"/>
+      <label class="j-label">Nama Tim</label>
+      <input id="joinName" class="j-input" placeholder="mis. KELOMPOK BINTANG 2" maxlength="24" autocomplete="off"/>
+      <button class="j-btn j-primary" onclick="doJoin()">
+        <span data-lucide="log-in" style="width:17px;height:17px"></span> Gabung &amp; Tunggu di Lobby
+      </button>
+      <button class="j-btn j-ghost" onclick="closeJoin()">Batal</button>
+      <p id="joinErr" class="j-err"></p>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>
+  // twinkle stars
+  (function(){
+    const c=document.getElementById('stars');
+    for(let i=0;i<42;i++){
+      const s=document.createElement('span');
+      s.className='star';
+      s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${(Math.random()*2+1).toFixed(1)}px;height:${(Math.random()*2+1).toFixed(1)}px;animation-delay:${(Math.random()*3).toFixed(2)}s`;
+      c.appendChild(s);
+    }
+  })();
+  // lucide svg init
+  if(window.lucide){ try{ lucide.createIcons(); }catch(e){} }
+  function openJoin(){
+    document.getElementById('joinModal').classList.add('show');
+    document.getElementById('joinErr').style.display='none';
+    const c=new URLSearchParams(location.search).get('code');
+    if(c) document.getElementById('joinCode').value=c.toUpperCase();
+    document.getElementById('joinCode').focus();
+  }
+  function closeJoin(){ document.getElementById('joinModal').classList.remove('show'); }
+  document.getElementById('joinModal').addEventListener('click', function(e){
+    if(e.target===this) closeJoin();
+  });
+  function doJoin(){
+    const code=document.getElementById('joinCode').value.trim().toUpperCase();
+    const name=document.getElementById('joinName').value.trim();
+    const err=document.getElementById('joinErr');
+    if(!code||!name){ err.textContent='Kode & nama tim wajib diisi'; err.style.display='block'; return; }
+    if(code.length!==6){ err.textContent='Kode harus 6 huruf'; err.style.display='block'; return; }
+    location.href='/game.html?code='+encodeURIComponent(code)+'&team='+encodeURIComponent(name)+'#join';
+  }
+  // auto open from landing ?code or #join
+  (function(){
+    const p=new URLSearchParams(location.search);
+    if(p.get('code')||location.hash.indexOf('join')>=0) openJoin();
+  })();
+</script>
+</body>
+</html>
