@@ -1420,3 +1420,148 @@ describe('VS client — spectator panes keep the player state intact', () => {
     assert.ok((page.ctxCalls().fill || 0) > 100);
   });
 });
+
+describe('VS client — match clock sync (pemain vs admin spectator)', () => {
+  const timerText = (page) => page.el('timer-val').textContent;
+
+  it('uses the server remaining on game_start instead of the full duration', () => {
+    const page = load();
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    const startAt = page.clock.now;
+    // Server bilang match sudah jalan 1 detik: 179 detik sisa, bukan 180.
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, serverTime: startAt - 1000, remaining: 179 });
+    assert.equal(page.get('timeLeft'), 179);
+    assert.equal(timerText(page), '02:59');
+
+    page.advance(1000);
+    assert.equal(page.get('timeLeft'), 178);
+    assert.equal(timerText(page), '02:58');
+
+    // Deadline lokal: 10 detik berjalan -> 179 - 10 = 169 (tick 250 ms tetap tepat).
+    page.advance(9000);
+    assert.equal(page.get('timeLeft'), 169);
+    assert.equal(timerText(page), '02:49');
+  });
+
+  it('keeps the remaining on a mid-match rejoin instead of restarting at full duration', () => {
+    const page = load();
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, serverTime: page.clock.now - 30000, remaining: 150 });
+    assert.equal(page.get('timeLeft'), 150);
+    assert.equal(timerText(page), '02:30');
+    page.advance(2000);
+    assert.equal(page.get('timeLeft'), 148);
+  });
+
+  it('falls back to the legacy countdown for an old server without remaining', () => {
+    const page = load();
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 180, serverTime: page.clock.now });
+    assert.equal(page.get('timeLeft'), 180);
+    page.advance(1000);
+    assert.equal(page.get('timeLeft'), 179, 'the legacy timeLeft-- timer still works');
+  });
+
+  it('ends the match exactly at the deadline', () => {
+    const page = load();
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 5, serverTime: page.clock.now, remaining: 5 });
+    page.advance(2000);
+    assert.equal(page.get('gameRunning'), true);
+    assert.equal(page.get('timeLeft'), 3);
+    page.advance(3200);
+    assert.equal(page.get('gameRunning'), false, 'endGame() must run when the deadline passes');
+    assert.equal(page.get('timeLeft'), 0);
+  });
+
+  it('does not count down unlimited matches (duration >= 9000)', () => {
+    const page = load();
+    page.call('vsConnect');
+    const ws = page.lastWs();
+    ws.open();
+    ws.receive({ type: 'game_start', materi: 'all', duration: 9000, serverTime: page.clock.now, remaining: null });
+    assert.equal(timerText(page), '♾️');
+    page.advance(3000);
+    assert.equal(page.get('timeLeft'), 9000);
+  });
+
+  it('admin spectator counts down from the same remaining', () => {
+    const page = spectatorPage();
+    connectSpectator(page);
+    page.call('vsSpecOnMessage', {
+      type: 'spectate_ok', code: 'ABC123',
+      room: { code: 'ABC123', status: 'playing', teams: [specTeam('t1', 'Tim 1')] },
+      startedAt: page.clock.now - 1000, duration: 180, remaining: 179,
+    });
+    assert.equal(page.get('SPEC.deadlineAt'), page.clock.now + 179000);
+    assert.equal(page.call('specStatusText', page.clock.now), 'BERMAIN 02:59');
+    page.advance(1000);
+    assert.equal(page.call('specStatusText', page.clock.now), 'BERMAIN 02:58');
+
+    // game_start (mis. observer reconnect) memakai deadline baru dari server.
+    page.call('vsSpecOnMessage', { type: 'game_start', materi: 'all', duration: 180, serverTime: page.clock.now, remaining: 60 });
+    assert.equal(page.call('specStatusText', page.clock.now), 'BERMAIN 01:00');
+
+    page.call('vsSpecOnMessage', { type: 'game_end' });
+    assert.equal(page.get('SPEC.deadlineAt'), 0);
+    assert.equal(page.call('specStatusText', page.clock.now), 'SELESAI');
+  });
+
+  it('admin spectator falls back to startedAt for an old server', () => {
+    const page = spectatorPage();
+    connectSpectator(page);
+    page.call('vsSpecOnMessage', {
+      type: 'spectate_ok', code: 'ABC123',
+      room: { code: 'ABC123', status: 'playing', teams: [specTeam('t1', 'Tim 1')] },
+      startedAt: page.clock.now - 30000, duration: 180,
+    });
+    assert.equal(page.get('SPEC.deadlineAt'), 0);
+    assert.equal(page.call('specStatusText', page.clock.now), 'BERMAIN 02:30');
+  });
+
+  it('prefers remainingMs so player HUD and admin status hit the same second', () => {
+    // Pemain menerima game_start pada T0 dengan sisa 179.400 dtk.
+    const player = load();
+    player.call('vsConnect');
+    const pws = player.lastWs();
+    pws.open();
+    pws.receive({ type: 'game_start', materi: 'all', duration: 180, serverTime: player.clock.now, remaining: 180, remainingMs: 179400 });
+    const playerDeadline = player.get('vsMatchDeadline');
+    assert.equal(playerDeadline, player.clock.now + 179400);
+
+    // Admin membuka spectator beberapa detik kemudian: server mengirim sisa
+    // milidetik yang mengarah ke instan absolut yang sama.
+    const admin = spectatorPage();
+    connectSpectator(admin);
+    admin.advance(7000);
+    const adminRemainingMs = playerDeadline - admin.clock.now;
+    admin.call('vsSpecOnMessage', {
+      type: 'spectate_ok', code: 'ABC123',
+      room: { code: 'ABC123', status: 'playing', teams: [specTeam('t1', 'Tim 1')] },
+      startedAt: admin.clock.now - 4000, duration: 180,
+      remaining: Math.ceil(adminRemainingMs / 1000), remainingMs: adminRemainingMs,
+    });
+    const adminDeadline = admin.get('SPEC.deadlineAt');
+    assert.equal(adminDeadline, admin.clock.now + adminRemainingMs);
+    assert.equal(adminDeadline, playerDeadline, 'kedua deadline harus instan absolut yang sama');
+
+    // Samakan jam kedua halaman (admin sudah 7 dtk di depan karena auto-start
+    // spectator 300 ms + advance), lalu bandingkan angka detiknya.
+    const skew = admin.clock.now - player.clock.now;
+    player.advance(skew);
+    for (let i = 0; i < 5; i++) {
+      const adminText = admin.call('specStatusText', admin.clock.now);
+      assert.equal(adminText.replace(/^BERMAIN /, ''), player.el('timer-val').textContent, `detik harus sama pada tick ${i}`);
+      player.advance(1000);
+      admin.advance(1000);
+    }
+  });
+});

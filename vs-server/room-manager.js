@@ -19,6 +19,36 @@ export function roomPublic(r) {
   };
 }
 
+/**
+ * Sisa waktu pertandingan (detik, dibulatkan ke atas) pada `now`. Server adalah
+ * sumber jam: nilai ini dikirim ke client lewat `remaining` supaya HUD pemain,
+ * leaderboard, dan status spectator admin menghitung deadline yang sama (tidak
+ * terpengaruh beda jam antar perangkat maupun latensi pengiriman pesan).
+ * @returns {number|null} null bila room belum/sudah tidak bermain, atau durasi
+ *   "Tanpa Batas" (>= 9000 detik).
+ */
+export function remainingSeconds(r, now = Date.now()) {
+  if (!r || r.status !== 'playing' || !r.startedAt) return null;
+  const duration = Number(r.duration) || 0;
+  if (!(duration > 0) || duration >= 9000) return null; // Tanpa Batas: tanpa hitungan
+  const endsAt = Number(r.startedAt) + duration * 1000;
+  return Math.max(0, Math.ceil((endsAt - Number(now)) / 1000));
+}
+
+/**
+ * Sisa waktu pertandingan dalam milidetik (null bila tidak ada hitungan).
+ * Dikirim bersama `remaining` (detik) supaya client dapat menghitung deadline
+ * lokal dengan presisi milidetik: HUD pemain dan status spectator admin jatuh
+ * pada detik yang sama, bukan hanya selisih maksimal 1 detik.
+ */
+export function remainingMs(r, now = Date.now()) {
+  if (!r || r.status !== 'playing' || !r.startedAt) return null;
+  const duration = Number(r.duration) || 0;
+  if (!(duration > 0) || duration >= 9000) return null;
+  const endsAt = Number(r.startedAt) + duration * 1000;
+  return Math.max(0, Math.round(endsAt - Number(now)));
+}
+
 export function broadcast(r, msg, except = null) {
   const s = JSON.stringify(msg);
   for (const t of r.teams.values()) {
@@ -257,7 +287,7 @@ export class RoomManager {
         team.ws = conn.ws; team.conn = conn;
         conn.room = code; conn.teamId = id;
         this._send(conn, { type: 'rejoined', room: roomPublic(r) });
-        if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt });
+        if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, this.now()), remainingMs: remainingMs(r, this.now()) });
       }
       return;
     }
@@ -269,7 +299,7 @@ export class RoomManager {
       r.hostWs = conn.ws; r.hostConn = conn;
       conn.room = code; conn.isHost = true;
       this._send(conn, { type: 'rejoined_host', room: roomPublic(r) });
-      if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt });
+      if (r.status === 'playing') this._send(conn, { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, this.now()), remainingMs: remainingMs(r, this.now()) });
       return;
     }
 
@@ -291,6 +321,10 @@ export class RoomManager {
         room: roomPublic(r),
         startedAt: r.startedAt || null,
         duration: r.duration,
+        // Sisa waktu saat ini supaya spectator yang join di tengah pertandingan
+        // langsung memakai deadline yang sama dengan tim (null saat lobby).
+        remaining: remainingSeconds(r, this.now()),
+        remainingMs: remainingMs(r, this.now()),
         observers: r.observers.size,
       });
       // snapshot terakhir tiap tim yang sudah pernah kirim telemetri
@@ -314,7 +348,7 @@ export class RoomManager {
       if (!r || !conn.isHost) { this._send(conn, { type: 'error', message: 'Hanya host yang bisa start' }); return; }
       if (r.teams.size === 0) { this._send(conn, { type: 'error', message: 'Belum ada tim join' }); return; }
       r.status = 'playing'; r.startedAt = this.now();
-      const payload = { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt };
+      const payload = { type: 'game_start', materi: r.materi, duration: r.duration, serverTime: r.startedAt, remaining: remainingSeconds(r, r.startedAt), remainingMs: remainingMs(r, r.startedAt) };
       broadcast(r, payload);
       // also to host
       this._send(conn, payload);

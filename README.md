@@ -257,7 +257,7 @@ Semua pesan JSON, satu field `type`.
 | `score_update` | `{score, floor, streak}` → broadcast `leaderboard` |
 | `finish` | Skor akhir tim → broadcast `leaderboard` |
 | `end_game` | Host saja → broadcast `game_end` |
-| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, observers}` + snapshot telemetri tiap tim |
+| `spectate` | `{code, adminPassword}` → `spectate_ok{code, room, startedAt, duration, remaining, remainingMs, observers}` + snapshot telemetri tiap tim |
 | `spectate_leave` | Lepas observer dari room |
 | `player_state` | Tim → `{s}`; server menyimpan snapshot lalu meneruskannya ke observer room itu saja |
 
@@ -265,13 +265,17 @@ Semua pesan JSON, satu field `type`.
 | --- | --- |
 | `room_created` / `joined` / `rejoined` / `rejoined_host` | Konfirmasi + snapshot room |
 | `room_update` | Daftar tim berubah (join / disconnect) |
-| `game_start` | Mulai bermain: `materi`, `duration`, `serverTime` |
+| `game_start` | Mulai bermain: `materi`, `duration`, `serverTime`, `remaining`/`remainingMs` (sisa waktu dari server; `null` = Tanpa Batas) |
 | `leaderboard` | Tim terurut skor menurun |
 | `game_end` | Sesi selesai |
-| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir |
+| `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir (+ `remaining`) |
 | `player_state` | Telemetri tim (`{teamId, s, t}`), relay hanya ke observer |
 | `team_offline` | `{teamId}` — tim putus, pane spectator menandai offline |
 | `error` | `{message}` — mis. `Password admin salah`, `Room penuh (10 tim)` |
+
+`remaining`/`remainingMs` adalah jam pertandingan dari server; client mengubahnya
+menjadi deadline lokal sehingga timer pemain, leaderboard, dan admin spectator
+menunjuk detik yang sama (tidak terpengaruh beda jam perangkat/latensi).
 
 Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitektur-dan-protokol.md).
 
@@ -284,8 +288,8 @@ Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitekt
 Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
 
 ```bash
-npm test        # 5 file test game/renderer/struktur/landing (353 test), --test-isolation=none
-npm run test:vs-server   # suite server WebSocket Node (61 test, legacy/WIP: 1 gagal pre-existing)
+npm test        # 5 file test game/renderer/struktur/landing (361 test), --test-isolation=none
+npm run test:vs-server   # suite server WebSocket Node (68 test, legacy/WIP: 1 gagal pre-existing)
 ```
 
 Atau per file:

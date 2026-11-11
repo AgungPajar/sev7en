@@ -10,6 +10,8 @@ import {
   broadcast,
   cleanupRooms,
   sanitizePlayerState,
+  remainingSeconds,
+  remainingMs,
   CODE_CHARS,
   MAX_TEAMS,
 } from '../vs-server/server.js';
@@ -266,6 +268,44 @@ describe('vs-server — pure helpers', () => {
 // ---------------------------------------------------------------------------
 // Live server integration
 // ---------------------------------------------------------------------------
+describe('vs-server — match clock', () => {
+  const playingRoom = (over = {}) => ({
+    status: 'playing',
+    startedAt: 1_700_000_000_000,
+    duration: 180,
+    ...over,
+  });
+
+  it('remainingSeconds counts down on the server clock (ceil)', () => {
+    assert.equal(remainingSeconds(playingRoom(), 1_700_000_000_000), 180);
+    assert.equal(remainingSeconds(playingRoom(), 1_700_000_030_000), 150);
+    assert.equal(remainingSeconds(playingRoom(), 1_700_000_000_100), 180);
+    // Dibulatkan ke atas: sisa 0,6 detik masih dihitung 1 detik (sama dengan client).
+    assert.equal(remainingSeconds(playingRoom(), 1_700_000_179_400), 1);
+  });
+
+  it('remainingSeconds returns null outside a limited running match', () => {
+    assert.equal(remainingSeconds(playingRoom({ status: 'lobby' }), 1_700_000_000_000), null);
+    assert.equal(remainingSeconds(playingRoom({ status: 'ended' }), 1_700_000_000_000), null);
+    assert.equal(remainingSeconds(playingRoom({ startedAt: null }), 1_700_000_000_000), null);
+    assert.equal(remainingSeconds(playingRoom({ duration: 9000 }), 1_700_000_000_000), null, 'Tanpa Batas tidak dihitung');
+    assert.equal(remainingSeconds(null), null);
+  });
+
+  it('remainingSeconds clamps to zero after the deadline', () => {
+    assert.equal(remainingSeconds(playingRoom(), 1_700_000_400_000), 0);
+    assert.equal(remainingSeconds(playingRoom({ duration: 5 }), 1_700_000_006_000), 0);
+  });
+
+  it('remainingMs keeps millisecond precision for the client deadline', () => {
+    assert.equal(remainingMs(playingRoom(), 1_700_000_000_000), 180000);
+    assert.equal(remainingMs(playingRoom(), 1_700_000_030_250), 149750);
+    assert.equal(remainingMs(playingRoom(), 1_700_000_400_000), 0);
+    assert.equal(remainingMs(playingRoom({ duration: 9000 }), 1_700_000_000_000), null);
+    assert.equal(remainingMs(playingRoom({ status: 'lobby' }), 1_700_000_000_000), null);
+  });
+});
+
 describe('vs-server — live server', () => {
   let app;
   let port;
@@ -995,5 +1035,78 @@ describe('vs-server — live server', () => {
     assert.equal(app.cleanupNow(), 1);
     assert.equal(app.rooms.has(code), false);
     assert.equal(app.cleanupNow(), 0);
+  });
+
+  // ---- match clock (remaining) ------------------------------------------
+  it('sends the server remaining in game_start for start, rejoin and rejoin_host', async () => {
+    const { host, code } = await createRoom({ duration: 180 });
+    const { c, joined } = await joinRoom(code, 'Alpha');
+    host.send({ type: 'start_game' });
+    const teamStart = await c.nextType('game_start');
+    assert.equal(teamStart.remaining, 180, 'a fresh match starts with the full duration left');
+    assert.equal(teamStart.remainingMs, 180000, 'remainingMs carries the millisecond precision');
+
+    // Lewatkan 30 detik di jam server tanpa menunggu waktu nyata.
+    const room = app.rooms.get(code);
+    room.startedAt = Date.now() - 30000;
+    c.close();
+    await delay(40);
+
+    const again = await client();
+    again.send({ type: 'rejoin', code, teamId: joined.teamId });
+    await again.nextType('rejoined');
+    const rejoinedStart = await again.nextType('game_start');
+    assert.ok(rejoinedStart.remaining >= 148 && rejoinedStart.remaining <= 150, `rejoin remaining=${rejoinedStart.remaining}`);
+    assert.ok(rejoinedStart.remainingMs >= 148000 && rejoinedStart.remainingMs <= 150000, `rejoin remainingMs=${rejoinedStart.remainingMs}`);
+    assert.equal(rejoinedStart.serverTime, room.startedAt, 'serverTime stays the absolute match start');
+
+    const hostAgain = await client();
+    hostAgain.send({ type: 'rejoin_host', code, adminPassword: app.config.adminPassword });
+    await hostAgain.nextType('rejoined_host');
+    const hostStart = await hostAgain.nextType('game_start');
+    assert.ok(hostStart.remaining >= 148 && hostStart.remaining <= 150, `host remaining=${hostStart.remaining}`);
+    assert.ok(hostStart.remainingMs >= 148000 && hostStart.remainingMs <= 150000, `host remainingMs=${hostStart.remainingMs}`);
+    assert.equal(hostStart.serverTime, room.startedAt);
+  });
+
+  it('sends remaining in spectate_ok and clamps it at zero after the deadline', async () => {
+    const { host, code } = await createRoom({ duration: 180 });
+    await joinRoom(code, 'Alpha');
+    await startGame(host);
+    app.rooms.get(code).startedAt = Date.now() - 30000;
+
+    const obs = await spectate(code);
+    const ok = await obs.nextType('spectate_ok');
+    assert.ok(ok.remaining >= 148 && ok.remaining <= 150, `spectate remaining=${ok.remaining}`);
+    assert.ok(ok.remainingMs >= 148000 && ok.remainingMs <= 150000, `spectate remainingMs=${ok.remainingMs}`);
+    assert.equal(ok.duration, 180);
+    assert.ok(ok.startedAt);
+
+    app.rooms.get(code).startedAt = Date.now() - 500000;
+    const late = await spectate(code);
+    const lateOk = await late.nextType('spectate_ok');
+    assert.equal(lateOk.remaining, 0);
+    assert.equal(lateOk.remainingMs, 0);
+  });
+
+  it('sends remaining=null in the lobby and for unlimited matches', async () => {
+    const { code } = await createRoom({ duration: 180 });
+    await joinRoom(code, 'Alpha');
+    const lobbyObs = await spectate(code);
+    const lobbyOk = await lobbyObs.nextType('spectate_ok');
+    assert.equal(lobbyOk.remaining, null);
+    assert.equal(lobbyOk.remainingMs, null);
+
+    const unlimited = await createRoom({ duration: 9000 });
+    const { c } = await joinRoom(unlimited.code, 'Beta');
+    unlimited.host.send({ type: 'start_game' });
+    const start = await c.nextType('game_start');
+    assert.equal(start.remaining, null, 'Tanpa Batas tidak mengirim hitungan');
+    assert.equal(start.remainingMs, null);
+    assert.equal(start.duration, 9000);
+    const obs = await spectate(unlimited.code);
+    const unlimitedOk = await obs.nextType('spectate_ok');
+    assert.equal(unlimitedOk.remaining, null);
+    assert.equal(unlimitedOk.remainingMs, null);
   });
 });

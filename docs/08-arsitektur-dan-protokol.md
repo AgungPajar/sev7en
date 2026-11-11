@@ -447,10 +447,10 @@ Semua pesan berupa objek JSON dengan field `type`.
 | `rejoined` | `room` | Setelah rejoin sukses |
 | `rejoined_host` | `room` | Setelah rejoin_host sukses |
 | `room_update` | `room` | Tim join atau disconnect |
-| `game_start` | `materi`, `duration`, `serverTime` | Host memulai |
+| `game_start` | `materi`, `duration`, `serverTime`, `remaining`, `remainingMs` | Host memulai, rejoin, atau rejoin_host saat `playing` |
 | `leaderboard` | `teams[]` | Skor berubah / finish |
 | `game_end` | — | Host mengakhiri |
-| `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `observers` | Setelah `spectate` sukses |
+| `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `remaining`, `remainingMs`, `observers` | Setelah `spectate` sukses |
 | `player_state` | `teamId`, `s`, `t` | Relay telemetri tim ke observer |
 | `team_offline` | `teamId` | Socket tim putus |
 | `error` | `message` | Validasi gagal |
@@ -459,6 +459,22 @@ Pesan room lama (`room_update`, `leaderboard`, `game_start`, `game_end`,
 `error`) juga disiarkan ke observer room itu; bentuknya tidak berubah. Relay
 `player_state` hanya ke observer, tidak ke tim.
 
+### Jam pertandingan (`remaining` / `remainingMs`)
+
+`remaining` adalah **sisa detik pertandingan saat pesan dibuat di server**
+(dibulatkan ke atas, `null` saat lobby atau durasi "Tanpa Batas" >= 9000).
+`remainingMs` adalah nilai yang sama dalam **milidetik** (lebih presisi).
+Client tidak memakai jam absolut perangkatnya untuk menghitung sisa waktu:
+nilai ini diubah menjadi deadline lokal `Date.now() + remainingMs`, lalu tick
+dijadwalkan tepat di batas detik deadline. Hasilnya HUD pemain, timer
+leaderboard, dan status **BERMAIN mm:ss** di layar spectator admin menunjuk
+detik yang sama (bukan sekadar ±1 detik) meski jam antar perangkat berbeda dan
+`game_start` datang terlambat. Saat tim rejoin/refresh di tengah pertandingan,
+server mengirim ulang `remaining`/`remainingMs` yang sudah berjalan (bukan durasi
+penuh), jadi timer tidak “mengulang”. Field `serverTime` (waktu mulai absolut)
+tetap dikirim untuk kompatibilitas; client lama yang belum mengenal kedua field
+itu tetap memakai hitungan lokalnya.
+
 Contoh `game_start`:
 
 ```json
@@ -466,7 +482,9 @@ Contoh `game_start`:
   "type": "game_start",
   "materi": "food_kitchen",
   "duration": 300,
-  "serverTime": 1760000100000
+  "serverTime": 1760000100000,
+  "remaining": 297,
+  "remainingMs": 296540
 }
 ```
 
@@ -508,11 +526,15 @@ Contoh `spectate_ok`:
   },
   "startedAt": 1760000100000,
   "duration": 180,
+  "remaining": 143,
+  "remainingMs": 142600,
   "observers": 1
 }
 ```
 
-`observers` dihitung dari jumlah socket observer aktif di room itu. Snapshot
+`observers` dihitung dari jumlah socket observer aktif di room itu. `remaining`
+memakai jam server yang sama seperti `game_start` sehingga hitungan di tab admin
+selaras dengan HUD para pemain; nilainya `null` saat room masih lobby. Snapshot
 telemetri dikirim menyusul sebagai pesan `player_state` terpisah per tim.
 
 Contoh `player_state` (relay ke observer):

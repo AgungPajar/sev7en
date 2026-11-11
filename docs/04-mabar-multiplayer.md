@@ -107,7 +107,9 @@ salah baca.
 - Server menyimpan nilai terakhir, mengurutkan, lalu menyiarkan `leaderboard` ke
   host dan semua tim.
 - Pojok kanan atas game menampilkan kode room, jumlah tim, dan leaderboard.
-- Timer di leaderboard mengikuti timer lokal tim yang sedang bermain.
+- Timer di leaderboard dan status spectator dihitung dari `remainingMs` yang
+  dikirim server (jam yang sama dengan HUD pemain), bukan dari jam masing-masing
+  perangkat — jadi angkanya selaras.
 
 Perbedaan tampilan yang perlu diketahui:
 
@@ -167,8 +169,15 @@ kecilkan jendela, tutup tab lain, atau pakai mode fokus (tombol `F`).
 
 ## 7. Akhir permainan
 
-- Timer berjalan lokal di tiap browser. Saat habis, tim melihat modal hasilnya
-  sendiri (poin, meter, jumlah tangga).
+- Timer mengikuti **jam server**: server mengirim `remaining` (detik) dan
+  `remainingMs` (milidetik) pada `game_start` dan `spectate_ok`, lalu tiap
+  browser memakai deadline lokal dan tick di batas detik. Jadi HUD pemain,
+  timer leaderboard, dan status **BERMAIN mm:ss** di layar admin menunjuk detik
+  yang sama (bukan hanya ±1 detik), termasuk bila pesan datang terlambat atau
+  tim rejoin di tengah match.
+- Saat habis, tim melihat modal hasilnya sendiri (poin, meter, jumlah tangga).
+- Durasi **Tanpa Batas** (9000 detik) tidak dihitung: HUD menampilkan ♾️ dan
+  spectator menampilkan status `BERMAIN` tanpa hitungan.
 - Server **tidak** mengakhiri room otomatis dan tidak menghitung pemenang global.
 - Leaderboard berhenti bergerak setelah tim berhenti mengirim skor.
 - Room tetap ada sampai TTL **2 jam** atau server restart.
@@ -198,9 +207,10 @@ Client VS mencoba menyambung ulang setiap **2 detik**. Selama halaman tidak
 di-refresh, `code` dan `teamId` masih ada di memori, jadi begitu WebSocket terbuka
 lagi client mengirim `rejoin{code, teamId}` dan server mengikat ulang socket itu
 (membalas `rejoined`, plus `game_start` bila room sedang bermain). Skor, telemetri,
-dan pane spectator pulih tanpa perlu join ulang. Host di `game.html` melakukan hal
-yang sama dengan `rejoin_host`, termasuk memakai password admin yang diisi di
-form.
+dan pane spectator pulih tanpa perlu join ulang. `game_start` yang dikirim ulang
+membawa `remaining` yang sudah berjalan, sehingga timer tim tidak kembali penuh
+dan tetap sama dengan admin. Host di `game.html` melakukan hal yang sama dengan
+`rejoin_host`, termasuk memakai password admin yang diisi di form.
 
 ### Yang **tidak** terjadi
 

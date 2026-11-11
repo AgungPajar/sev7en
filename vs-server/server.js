@@ -16,10 +16,12 @@ import {
   broadcast,
   cleanupRooms,
   sanitizePlayerState,
+  remainingSeconds,
+  remainingMs,
   RoomManager,
 } from './room-manager.js';
 
-export { PORT, ADMIN_PASSWORD, CODE_CHARS, MAX_TEAMS, ROOM_TTL_MS, genCode, roomPublic, broadcast, cleanupRooms, sanitizePlayerState, RoomManager };
+export { PORT, ADMIN_PASSWORD, CODE_CHARS, MAX_TEAMS, ROOM_TTL_MS, genCode, roomPublic, broadcast, cleanupRooms, sanitizePlayerState, remainingSeconds, remainingMs, RoomManager };
 
 export function createVsServer(options = {}) {
   const config = {

@@ -20,8 +20,8 @@ Test lengkap untuk seluruh logika yang ada di project ini:
 # vs-server/server.bun.test.js milik `bun test`).
 node --test --test-isolation=none \
   tests/game-core.test.js tests/game-3d.test.js tests/game-vs-client.test.js \
-  tests/site-structure.test.js tests/landing.test.js        # 353 test
-node --test --test-isolation=none tests/vs-server.test.js    # 61 test (butuh `ws`)
+  tests/site-structure.test.js tests/landing.test.js        # 361 test
+node --test --test-isolation=none tests/vs-server.test.js    # 68 test (butuh `ws`)
 ```
 
 Tidak perlu install dependency tambahan — memakai **Node.js built-in test runner**
@@ -36,16 +36,16 @@ tests/
 │   └── game-page.js       # sandbox DOM/canvas/audio/timer/WebSocket untuk menjalankan HTML asli
 ├── game-core.test.js      # 166 test core game (dijalankan untuk kedua file HTML)
 ├── game-3d.test.js        # 82 test kontrak renderer 3D (dijalankan untuk kedua file HTML)
-├── game-vs-client.test.js # 89 test client multiplayer + spectator/telemetri di game.html
+├── game-vs-client.test.js # 97 test client multiplayer + spectator/telemetri + jam match
 ├── landing.test.js        # 8 test dialog join di index.html
 ├── site-structure.test.js # 8 test struktur markup & sinkronisasi build
-├── vs-server.test.js      # 61 test server WebSocket (unit + integrasi live + spectator)
+├── vs-server.test.js      # 68 test server WebSocket (unit + integrasi live + spectator + clock)
 └── README.md
 ```
 
-Total Node: **414 test** — 413 lulus, 1 gagal pre-existing di `vs-server.test.js`
+Total Node: **429 test** — 428 lulus, 1 gagal pre-existing di `vs-server.test.js`
 ("supports rejoining a team after a disconnect", di luar scope renderer 3D; sengaja
-tidak diubah). Seluruh 353 test game/renderer/struktur/landing hijau.
+tidak diubah). Seluruh 361 test game/renderer/struktur/landing hijau.
 Tambahan `bun test vs-server/server.bun.test.js`: **21 test**, semuanya lulus.
 
 ## Pendekatan

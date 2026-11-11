@@ -91,6 +91,7 @@ default diambil sekali di akhir skenario.
 | `spectate-lobby` | Mode penonton: room nyata masih lobby (2 tim join, belum mulai) |
 | `spectate-live` | End-to-end: room nyata + 4 socket tim mengirim `player_state` → 4 kamera live + fokus |
 | `spectate-real-player` | End-to-end paling nyata: iframe halaman pemain (`game.html`) auto-join & main sungguhan, spectator admin menonton kamera pemain itu |
+| `clock-sync` | End-to-end jam: iframe pemain main, spectator admin dibuka 4 detik kemudian, lalu HUD timer pemain dibandingkan dengan status `BERMAIN mm:ss` admin (selisih harus ≤1 detik) |
 | `spectate-fps` | Ukur fps rAF vs fps gambar mode penonton 4 kamera |
 | `admin-tonton-live` | End-to-end panel admin: buat room, 4 tim join + telemetri, klik **Tonton Live**, iframe 4 kamera + fokus/zoom |
 
@@ -98,9 +99,9 @@ Catatan mode penonton:
 
 - `spectate-grid/focus/zoom/fps` menyuntik snapshot sintetis langsung ke klien
   (tanpa room) supaya layout deterministic; cocok untuk screenshot dokumentasi.
-- `spectate-live`, `spectate-real-player`, dan `admin-tonton-live` memakai
-  protokol WebSocket sungguhan, jadi **wajib** pakai `--url=` ke server Bun/Node
-  yang punya endpoint `/ws` (`http://127.0.0.1:3001/game.html`, atau
+- `spectate-live`, `spectate-real-player`, `clock-sync`, dan `admin-tonton-live`
+  memakai protokol WebSocket sungguhan, jadi **wajib** pakai `--url=` ke server
+  Bun/Node yang punya endpoint `/ws` (`http://127.0.0.1:3001/game.html`, atau
   `http://127.0.0.1:3001/admin/` untuk skenario panel admin). Password admin
   default `sev7en-admin` (bisa diganti lewat env `ADMIN_PASSWORD` di server).
 - `spectate-real-player` menampilkan iframe halaman pemain di pojok kiri bawah

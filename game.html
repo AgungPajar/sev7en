@@ -1968,6 +1968,9 @@ function vsHandleGameStart(msg){
   // VS uses same startGame but we acak opsi: hook via flag
   window._vsMateri = materi;
   startGame();
+  // Jam pertandingan mengikuti sisa waktu dari server (bukan waktu terima pesan),
+  // supaya HUD pemain = timer leaderboard = status spectator admin.
+  vsSyncMatchClock(msg);
   // Kirim telemetri posisi/soal ke server supaya admin bisa menonton live.
   vsStartTelemetry();
 }
@@ -2054,6 +2057,55 @@ function vsStopTelemetry() {
   if (vsTelemTimer) { try { clearInterval(vsTelemTimer); } catch (e) {} vsTelemTimer = null; }
 }
 
+// ================= SINKRONISASI JAM PERTANDINGAN =================
+// Server mengirim `remaining` (detik) dan `remainingMs` (milidetik) sisa waktu
+// saat pesan dibuat. Klien mengubahnya menjadi deadline LOKAL, lalu HUD pemain,
+// timer leaderboard, dan status spectator admin menunjuk detik yang sama tanpa
+// terpengaruh beda jam antar perangkat maupun latensi pengiriman pesan.
+// Tick dijadwalkan tepat di batas detik deadline (bukan interval buta) supaya
+// angka detik di HUD berubah bersamaan dengan yang dihitung admin.
+let vsMatchDeadline = 0;
+let vsMatchTimer = null;
+
+function vsStopMatchClock() {
+  if (vsMatchTimer) { try { clearTimeout(vsMatchTimer); } catch (e) {} vsMatchTimer = null; }
+  vsMatchDeadline = 0;
+}
+
+function vsScheduleMatchTick() {
+  if (!gameRunning || !vsMatchDeadline) return;
+  const remainMs = vsMatchDeadline - Date.now();
+  const remain = Math.max(0, Math.ceil(remainMs / 1000));
+  timeLeft = remain;
+  updateHUD();
+  if (remain <= 0) { endGame(); return; }
+  // Sisa milidetik menuju detik berikutnya: display berubah tepat di boundary.
+  const msToNext = remainMs - (remain - 1) * 1000;
+  vsMatchTimer = setTimeout(vsScheduleMatchTick, Math.max(1, Math.ceil(msToNext)));
+  timerInterval = vsMatchTimer; // biar clearInterval(timerInterval) milik core tetap bekerja
+}
+
+function vsSyncMatchClock(msg) {
+  const remaining = Number(msg && msg.remaining);
+  const remainingMsVal = Number(msg && msg.remainingMs);
+  const duration = Number(msg && msg.duration);
+  vsMatchDeadline = 0;
+  if (isFinite(duration) && duration >= 9000) return false; // Tanpa Batas
+  // Presisi milidetik lebih diutamakan supaya detik HUD sama dengan admin.
+  let ms = null;
+  if (msg && msg.remainingMs != null && isFinite(remainingMsVal) && remainingMsVal >= 0) ms = remainingMsVal;
+  else if (isFinite(remaining) && remaining >= 0) ms = remaining * 1000;
+  if (ms == null) return false; // Server lama / Tanpa Batas: timer lokal bawaan
+  if (typeof timerInterval !== 'undefined' && timerInterval) {
+    try { clearInterval(timerInterval); } catch (e) {}
+    timerInterval = null;
+  }
+  vsStopMatchClock();
+  vsMatchDeadline = Date.now() + ms;
+  vsScheduleMatchTick();
+  return true;
+}
+
 // ================= MODE PENONTON ADMIN (SPECTATOR) =================
 // Admin membuka /game.html?code=KODE&spectate=1 (tombol "Tonton Live" di panel
 // admin). Tiap tim dapat satu pane kamera hasil render 3D yang sama, jadi admin
@@ -2067,7 +2119,7 @@ const SPEC_TAU = Math.PI * 2;
 
 const SPEC = {
   active: false, connected: false, code: null, pass: '',
-  status: 'lobby', startedAt: null, duration: 0,
+  status: 'lobby', startedAt: null, deadlineAt: 0, duration: 0,
   teams: new Map(), order: [], selectedId: null, focus: false,
   hover: null, err: '',
   lastFrameAt: 0, lastDrawAt: 0, fps: 0, layout: null,
@@ -2124,12 +2176,40 @@ function specFitText(text, maxW, size, weight) {
 function specRectHit(r, x, y) {
   return !!r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
+function specRemainingSec(now) {
+  if (!SPEC.deadlineAt) return null;
+  return Math.max(0, Math.ceil((SPEC.deadlineAt - now) / 1000));
+}
+// Deadline lokal dari `remaining`/`remainingMs` server: sama dengan pemain.
+// `remainingMs` (bila ada) dipakai supaya detiknya persis sama, bukan ±1 detik.
+function specSyncDeadline(remaining, duration, remainingMsVal) {
+  SPEC.deadlineAt = 0;
+  const ms = Number(remainingMsVal);
+  const sec = Number(remaining);
+  const total = Number(duration);
+  if (isFinite(total) && total >= 9000) return false; // Tanpa Batas
+  if (remainingMsVal != null && isFinite(ms) && ms >= 0) {
+    const cap = isFinite(total) && total > 0 ? total * 1000 : ms;
+    SPEC.deadlineAt = Date.now() + Math.min(cap, ms);
+    return true;
+  }
+  if (remaining == null || !isFinite(sec) || sec < 0) return false;
+  const limit = isFinite(total) && total > 0 ? total : sec;
+  SPEC.deadlineAt = Date.now() + Math.min(limit, sec) * 1000;
+  return true;
+}
 function specStatusText(now) {
   if (SPEC.status === 'playing') {
     const d = Number(SPEC.duration) || 0;
     const st = Number(SPEC.startedAt) || 0;
-    if (!st || d >= 9000) return 'BERMAIN';
-    const remain = Math.max(0, Math.min(d, Math.round(d - (now - st) / 1000)));
+    if (d >= 9000) return 'BERMAIN';
+    let remain = specRemainingSec(now);
+    if (remain == null) {
+      // Fallback server lama: hitung dari startedAt absolut.
+      if (!st) return 'BERMAIN';
+      remain = Math.max(0, Math.round(d - (now - st) / 1000));
+    }
+    remain = Math.max(0, Math.min(d || remain, remain));
     return 'BERMAIN ' + String(Math.floor(remain / 60)).padStart(2, '0') + ':' + String(remain % 60).padStart(2, '0');
   }
   if (SPEC.status === 'ended') return 'SELESAI';
@@ -2717,6 +2797,8 @@ function vsSpecOnMessage(msg) {
       specSyncRoom(msg.room);
       SPEC.status = msg.room.status || SPEC.status;
     }
+    // Jam yang sama dengan pemain: `remaining`/`remainingMs` dari server.
+    specSyncDeadline(msg.remaining, SPEC.duration, msg.remainingMs);
     if (!SPEC.selectedId && SPEC.order.length) SPEC.selectedId = SPEC.order[0];
     return;
   }
@@ -2750,10 +2832,12 @@ function vsSpecOnMessage(msg) {
     SPEC.status = 'playing';
     SPEC.startedAt = msg.serverTime || Date.now();
     if (Number(msg.duration)) SPEC.duration = Number(msg.duration);
+    specSyncDeadline(msg.remaining, SPEC.duration, msg.remainingMs);
     return;
   }
   if (type === 'game_end') {
     SPEC.status = 'ended';
+    SPEC.deadlineAt = 0;
     return;
   }
   if (type === 'error') {
@@ -2910,17 +2994,19 @@ function vsSpecView() {
   };
 }
 
-// Hentikan telemetri saat permainan berakhir atau kembali ke menu.
+// Hentikan telemetri + jam pertandingan saat permainan berakhir / kembali ke menu.
 (function () {
   const _origEndGame = endGame;
   endGame = function () {
     vsStopTelemetry();
+    vsStopMatchClock();
     return _origEndGame.apply(this, arguments);
   };
   if (typeof window.openMenu === 'function') {
     const _origOpenMenu = window.openMenu;
     window.openMenu = function () {
       vsStopTelemetry();
+      vsStopMatchClock();
       return _origOpenMenu.apply(this, arguments);
     };
   }

@@ -165,6 +165,20 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'clock-sync',
+    label: 'Sinkronisasi jam: HUD pemain (iframe nyata) vs status BERMAIN di layar admin',
+    viewport: { width: 1440, height: 900 },
+    steps: [
+      { eval: clockSyncSetupScript(), wait: 300 },
+      { waitFor: "(() => { const r = window.__clockCheck && window.__clockCheck(); return !!r && r.playerSec != null && r.adminSec != null && r.diff != null && r.diff <= 1; })()", timeout: 15000 },
+      { wait: 400 },
+      { shot: 'pemain-vs-admin' },
+      { eval: "(() => { const r = window.__clockCheck(); return 'HUD pemain ' + r.playerText + ' vs admin ' + r.adminText + ' (selisih ' + r.diff + ' detik)'; })()", wait: 300 },
+      { wait: 2600 },
+      { shot: 'pemain-vs-admin-2' },
+    ],
+  },
+  {
     name: 'admin-tonton-live',
     label: 'Panel admin: tombol Tonton Live membuka overlay iframe 4 kamera (end-to-end)',
     viewport: { width: 1440, height: 900 },
@@ -392,6 +406,76 @@ function spectateRealPlayerScript() {
     }, 900);
     window.vsSpecStart(code, pass);
     return code;
+  })()`;
+}
+
+// End-to-end sinkronisasi jam: halaman pemain nyata (iframe) main, spectator
+// admin dibuka setelah beberapa detik, lalu bandingkan HUD timer pemain dengan
+// status "BERMAIN mm:ss" di spectator (harus sama / beda maksimal 1 detik).
+function clockSyncSetupScript() {
+  return `(async () => {
+    const pass = 'sev7en-admin';
+    const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
+    const openWs = () => new Promise((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => resolve(ws);
+      ws.onerror = () => reject(new Error('WebSocket gagal: ' + wsUrl));
+    });
+    const waitMsg = (ws, type) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout menunggu ' + type)), 6000);
+      const onMsg = (ev) => {
+        let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === type) { clearTimeout(timer); ws.removeEventListener('message', onMsg); resolve(msg); }
+      };
+      ws.addEventListener('message', onMsg);
+    });
+    const host = await openWs();
+    host.send(JSON.stringify({ type: 'create_room', adminPassword: pass, materi: 'all', duration: 180 }));
+    const created = await waitMsg(host, 'room_created');
+    const frame = document.createElement('iframe');
+    frame.id = 'playerFrame';
+    frame.style.cssText = 'position:fixed;left:8px;bottom:8px;width:520px;height:330px;z-index:5;border:2px solid #22c55e;border-radius:10px;opacity:0.98;box-shadow:0 10px 30px rgba(0,0,0,.5)';
+    frame.src = '/game.html?code=' + encodeURIComponent(created.code) + '&team=UJI%20CLOCK';
+    document.body.appendChild(frame);
+    await new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const tick = () => {
+        let joined = false;
+        try {
+          const doc = frame.contentDocument;
+          const lobby = doc && doc.getElementById('vs-join-lobby');
+          joined = !!(lobby && getComputedStyle(lobby).display !== 'none');
+        } catch (e) {}
+        if (joined) return resolve(true);
+        if (Date.now() - t0 > 12000) return reject(new Error('iframe pemain tidak join lobby'));
+        setTimeout(tick, 120);
+      };
+      tick();
+    });
+    host.send(JSON.stringify({ type: 'start_game' }));
+    // Biarkan match berjalan ~4 detik sebelum admin membuka spectator, supaya
+    // kelihatan bahwa timer dihitung dari sisa waktu server (bukan 03:00 penuh).
+    await new Promise((r) => setTimeout(r, 4000));
+    window.__clockCheck = function () {
+      const toSec = (t) => {
+        const m = /([0-9]+):([0-9]+)/.exec(String(t || ''));
+        return m ? (Number(m[1]) * 60 + Number(m[2])) : null;
+      };
+      const f = document.getElementById('playerFrame');
+      const doc = f && f.contentDocument;
+      const playerEl = doc && doc.getElementById('timer-val');
+      const playerText = playerEl ? String(playerEl.textContent || '') : '';
+      const adminText = (typeof specStatusText === 'function') ? specStatusText(Date.now()) : '';
+      const playerSec = toSec(playerText);
+      const adminSec = toSec(adminText);
+      return {
+        playerText: playerText, adminText: adminText,
+        playerSec: playerSec, adminSec: adminSec,
+        diff: (playerSec != null && adminSec != null) ? Math.abs(playerSec - adminSec) : null,
+      };
+    };
+    window.vsSpecStart(created.code, pass);
+    return created.code;
   })()`;
 }
 
