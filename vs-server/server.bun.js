@@ -169,7 +169,8 @@ export function createBunServer(options = {}) {
 
 if (import.meta.main) {
   const app = createBunServer();
-  console.log(`sev7en-vs (Bun) on http://${app.config.hostname}:${app.port}  static + WS /ws & /vs-ws  admin pass=${app.config.adminPassword.slice(0, 3)}***  maxTeams=${app.config.maxTeams}`);
+  // console.log(`sev7en-vs (Bun) on http://${app.config.hostname}:${app.port}  static + WS /ws & /vs-ws  admin pass=${app.config.adminPassword.slice(0, 3)}***  maxTeams=${app.config.maxTeams}`);
+  console.log(`sev7en-vs (Bun) on http://${app.config.hostname}:${app.port}  static + WS /ws & /vs-ws  admin pass=${app.config.adminPassword}  maxTeams=${app.config.maxTeams}`);
   const shutdown = () => { app.stop(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

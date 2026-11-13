@@ -780,6 +780,21 @@ for (const file of GAME_FILES) {
     });
 
     describe('onLandOnPlatform() — wrong answer', () => {
+      const climb = (page, times = 1) => {
+        for (let i = 0; i < times; i++) {
+          const left = plain(page.get('leftOptionPlat'));
+          page.call('onLandOnPlatform', page.get(left.isCorrect ? 'leftOptionPlat' : 'rightOptionPlat'));
+          page.advance(550);
+        }
+      };
+
+      const landWrong = (page) => {
+        const left = plain(page.get('leftOptionPlat'));
+        const wrong = page.get(left.isCorrect ? 'rightOptionPlat' : 'leftOptionPlat');
+        page.call('onLandOnPlatform', wrong);
+        page.advance(900);
+      };
+
       it('breaks the platform, resets the streak and falls', () => {
         const page = load();
         startGame(page);
@@ -789,7 +804,7 @@ for (const file of GAME_FILES) {
         const wrong = plain(page.get(wrongSide));
         page.call('onLandOnPlatform', page.get(wrongSide));
 
-        assert.equal(page.get('score'), 300);
+        assert.equal(page.get('score'), 150);
         assert.equal(page.get('floorLevel'), 0);
         assert.equal(page.get('streak'), 0);
         assert.equal(page.get('star.state'), 'falling');
@@ -798,7 +813,22 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('currentBasePlat.status'), 'correct');
         assert.equal(page.get(wrongSide + '.status'), 'wrong');
         assert.equal(page.get(wrongSide + '.broken'), true);
-        assert.equal(page.el('score-val').textContent, 300);
+        assert.equal(page.el('score-val').textContent, 150);
+        const penaltyTexts = plain(page.get('floatingTexts')).filter((t) => t.text.includes('POIN'));
+        assert.deepEqual(penaltyTexts.map((t) => t.text), ['-150 POIN']);
+      });
+
+      it('never drops the score below 100 (and leaves 0 untouched)', () => {
+        const page = load();
+        startGame(page);
+        page.eval('score = 100;');
+        page.call('onLandOnPlatform', page.get(page.get('leftOptionPlat.isCorrect') ? 'rightOptionPlat' : 'leftOptionPlat'));
+        assert.equal(page.get('score'), 100);
+
+        const zero = load();
+        startGame(zero);
+        zero.call('onLandOnPlatform', zero.get(zero.get('leftOptionPlat.isCorrect') ? 'rightOptionPlat' : 'leftOptionPlat'));
+        assert.equal(zero.get('score'), 0);
       });
 
       it('spawns red confetti and a break label', () => {
@@ -833,6 +863,58 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('star.scaleX'), 1.25);
         assert.equal(page.get('star.scaleY'), 0.75);
         assert.equal(page.get('questionPickSeq'), 2);
+      });
+
+      it('drops exactly one floor (100 m) when wrong above the ground', () => {
+        const page = load();
+        startGame(page);
+        climb(page, 2);
+        const level1 = plain(page.get('letitedPlatforms[1]'));
+        const scoreBefore = page.get('score');
+
+        const left = plain(page.get('leftOptionPlat'));
+        const wrongSide = left.isCorrect ? 'rightOptionPlat' : 'leftOptionPlat';
+        page.call('onLandOnPlatform', page.get(wrongSide));
+        assert.equal(page.get('floorLevel'), 2, 'altitude must not change until the fall finishes');
+
+        page.advance(900);
+        assert.equal(page.get('floorLevel'), 1);
+        assert.equal(page.get('score'), Math.max(100, Math.floor(scoreBefore * 0.5)));
+        assert.equal(page.get('streak'), 0);
+        assert.equal(page.get('letitedPlatforms.length'), 2);
+        assert.deepEqual(plain(page.get('currentBasePlat')), level1);
+        assert.equal(page.get('star.wx'), level1.wx);
+        assert.equal(page.get('star.wy'), level1.wy - 48);
+        assert.equal(page.get('star.state'), 'idle');
+        assert.equal(page.el('alt-val').textContent, '100m');
+        assert.equal(page.el('q-counter').textContent, 'TANGGA 2');
+        assert.equal(page.get('cam.targetX'), level1.wx);
+        assert.equal(page.get('cam.targetY'), level1.wy);
+        const dropLabels = plain(page.get('floatingTexts')).filter((t) => t.text.includes('TURUN'));
+        assert.equal(dropLabels.length, 1);
+        assert.match(dropLabels[0].text, /TURUN 100 m/);
+      });
+
+      it('falls one floor at a time until the ground and stops there', () => {
+        const page = load();
+        startGame(page);
+        climb(page, 2);
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 1);
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 0);
+        assert.equal(page.get('star.wx'), 0);
+        assert.equal(page.get('star.wy'), -48);
+        assert.equal(page.get('letitedPlatforms.length'), 1);
+        assert.equal(page.get('currentBasePlat.isStart'), true);
+        assert.equal(page.el('alt-val').textContent, '0m');
+        assert.equal(page.el('q-counter').textContent, 'TANGGA 1');
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 0, 'a wrong answer at ground must not go negative');
+        assert.equal(page.get('currentBasePlat.isStart'), true);
       });
 
       it('does not reset when the game has stopped', () => {

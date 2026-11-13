@@ -616,6 +616,10 @@
     let timerInterval = null;
     let gameRunning = false;
 
+    // Penalti jawaban salah: poin dipotong 50%, tidak pernah di bawah 100.
+    const MIN_SCORE = 100;
+    const WRONG_SCORE_FACTOR = 0.5;
+
     function shuffle(arr) {
       const a = [...arr];
       for (let i = a.length - 1; i > 0; i--) {
@@ -833,7 +837,7 @@
         }, 550);
 
       } else {
-        // WRONG -> CLOUD BREAKS, FALLS DOWN BACK TO LAST SAFE STEP!
+        // WRONG -> AWAN PECAH, PEMAIN JATUH 1 TANGGA (100 m) KE BAWAH.
         playSound('wrong');
         plat.status = 'wrong';
         plat.broken = true;
@@ -841,6 +845,11 @@
         star.expression = 'dizzy';
         star.vy = -4; // Slight pop before dropping
 
+        const scoreBefore = score;
+        if (score > MIN_SCORE) {
+          score = Math.max(MIN_SCORE, Math.floor(score * WRONG_SCORE_FACTOR));
+        }
+        const scorePenalty = scoreBefore - score;
         streak = 0;
         updateHUD();
 
@@ -849,10 +858,30 @@
           wx: plat.wx, wy: plat.wy - 85,
           text: `AWAN HANCUR! 💥`, color: '#f87171', alpha: 1
         });
+        if (scorePenalty > 0) {
+          floatingTexts.push({
+            wx: plat.wx, wy: plat.wy - 120,
+            text: `-${scorePenalty} POIN`, color: '#f87171', alpha: 1
+          });
+        }
 
-        // After falling back to the safe platform level, land back on currentBasePlat & load new question
+        // Setelah awan pecah, pemain jatuh 1 tangga (100 m) ke platform aman
+        // sebelumnya. Di tanah (floorLevel 0) tidak ada platform di bawah, jadi
+        // pemain tetap di START dan tidak ada ketinggian yang hilang.
         setTimeout(() => {
           if (!gameRunning) return;
+          if (floorLevel > 0 && letitedPlatforms.length >= 2) {
+            letitedPlatforms.pop();
+            currentBasePlat = letitedPlatforms[letitedPlatforms.length - 1];
+            floorLevel--;
+            cam.targetX = currentBasePlat.wx;
+            cam.targetY = currentBasePlat.wy;
+            updateHUD();
+            floatingTexts.push({
+              wx: currentBasePlat.wx, wy: currentBasePlat.wy - 95,
+              text: 'TURUN 100 m ⬇️', color: '#fbbf24', alpha: 1
+            });
+          }
           star.wx = currentBasePlat.wx;
           star.wy = currentBasePlat.wy - 48;
           star.rotation = 0;
@@ -1986,7 +2015,7 @@ function renderLeaderboard(teams){
   el.innerHTML = teams.slice(0,10).map((t,i)=>{
     const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.';
     const isMe = t.id===VS.teamId;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:8px;background:${isMe?'rgba(59,130,246,.18)':'rgba(255,255,255,.06)'};margin-bottom:4px;border:${isMe?'1px solid #3b82f6':'1px solid transparent'}"><span><b>${medal}</b> ${t.name}</span><span style="font-weight:900;color:#fbbf24">${t.score} <small style="color:#93c5fd">${t.floor}m</small></span></div>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-radius:8px;background:${isMe?'rgba(59,130,246,.18)':'rgba(255,255,255,.06)'};margin-bottom:4px;border:${isMe?'1px solid #3b82f6':'1px solid transparent'}"><span><b>${medal}</b> ${t.name}</span><span style="font-weight:900;color:#fbbf24">${t.floor*100} m <small style="color:#93c5fd">${t.score} pts</small></span></div>`;
   }).join('');
 }
 
@@ -2160,10 +2189,10 @@ function vsShowResult(result, opts){
     if(kicker) kicker.textContent = 'RONDE ' + (VS.round||1) + ' · WAKTU HABIS';
     if(trophy) trophy.textContent='⏳';
     if(title) title.textContent='WAKTU HABIS!';
-    if(sub) sub.textContent='Skor kamu '+ownScore+' poin · '+(ownFloor*100)+' m — menunggu hasil resmi dari server…';
+    if(sub) sub.textContent='Ketinggian '+(ownFloor*100)+' m · skor '+ownScore+' poin — menunggu hasil resmi dari server…';
     if(champ) champ.textContent='';
     if(list) list.innerHTML='';
-    if(note) note.textContent='Pemenang dihitung dari skor akhir semua tim. Lobi tetap aktif setelah hasil keluar.';
+    if(note) note.textContent='Pemenang dihitung dari ketinggian akhir; bila ketinggian sama, skor terbanyak menang. Lobi tetap aktif setelah hasil keluar.';
   } else {
     const tied=!!result.tied;
     const winners=Array.isArray(result.winners)?result.winners:[];
@@ -2178,7 +2207,7 @@ function vsShowResult(result, opts){
       if(trophy) trophy.textContent='🏆';
       if(title) title.textContent=(winner.name||'TIM')+' MENANG!';
       if(sub) sub.textContent=vsReasonText(result.reason)+' · Ronde '+(round||1);
-      if(champ) champ.textContent=winner.score+' poin · '+(winner.floor*100)+' m · streak x'+(winner.streak||0);
+      if(champ) champ.textContent=(winner.floor*100)+' m · '+winner.score+' poin · streak x'+(winner.streak||0);
     } else {
       if(trophy) trophy.textContent='🏁';
       if(title) title.textContent='SELESAI';
@@ -2193,7 +2222,7 @@ function vsShowResult(result, opts){
           return '<div class="vs-result-row'+(me?' me':'')+'">'
             +'<span class="rk">'+vsMedal(rank)+'</span>'
             +'<span class="nm">'+vsEscapeHtml(t.name)+(me?' (kamu)':'')+'</span>'
-            +'<span class="sc">'+(Number(t.score)||0)+' pts · '+(Number(t.floor)||0)*100+' m</span>'
+            +'<span class="sc">'+(Number(t.floor)||0)*100+' m · '+(Number(t.score)||0)+' pts</span>'
             +'</div>';
         }).join('');
       } else {
@@ -2931,7 +2960,7 @@ function specDrawPane(p, team, t, now) {
   const nameMax = Math.max(40, p.w - 150);
   specText(specFitText(team.name, nameMax, nameSize, 900), p.x + 20, p.y + hh * 0.34, nameSize, 900, '#f8fafc');
   const statSize = Math.max(8, Math.min(12, hh * 0.28));
-  const statText = team.score + ' pts · ' + (team.floor * 100) + 'm · x' + team.streak;
+  const statText = (team.floor * 100) + 'm · ' + team.score + ' pts · x' + team.streak;
   specText(specFitText(statText, nameMax + 40, statSize, 700), p.x + 20, p.y + hh * 0.72, statSize, 700, '#7dd3fc');
   // Zoom controls per pemain
   const hov = SPEC.hover || {};
@@ -3040,7 +3069,7 @@ function specDrawTabs(L, now) {
     const nameSize = Math.max(9, Math.min(13, tb.h * 0.30));
     specText(specFitText(team.name, tb.w - 24, nameSize, 800), tb.x + 18, tb.y + tb.h * 0.38, nameSize, 800, '#f8fafc');
     const subSize = Math.max(8, Math.min(11, tb.h * 0.24));
-    specText(specFitText(team.score + ' pts · ' + (team.floor * 100) + 'm', tb.w - 20, subSize, 700), tb.x + 18, tb.y + tb.h * 0.72, subSize, 700, '#7dd3fc');
+    specText(specFitText((team.floor * 100) + 'm · ' + team.score + ' pts', tb.w - 20, subSize, 700), tb.x + 18, tb.y + tb.h * 0.72, subSize, 700, '#7dd3fc');
   }
 }
 function specDrawEmptyState(L, now) {
@@ -3097,7 +3126,7 @@ function specDrawInfoBar(L, now) {
   const nameSize = Math.max(12, Math.min(19, info.h * 0.22));
   specText(specFitText(team.name, info.w * 0.22, nameSize, 900), info.x + 16, info.y + info.h * 0.24, nameSize, 900, '#fbbf24');
   const statSize = Math.max(9, Math.min(13, info.h * 0.16));
-  const statTxt = (team.score + ' pts · ' + (team.floor * 100) + 'm · streak x' + team.streak + ' · zoom ' + Math.round((team.zoom || 1) * 100) + '% · ' + (online ? 'LIVE' : 'OFFLINE'));
+  const statTxt = ((team.floor * 100) + 'm · ' + team.score + ' pts · streak x' + team.streak + ' · zoom ' + Math.round((team.zoom || 1) * 100) + '% · ' + (online ? 'LIVE' : 'OFFLINE'));
   specText(specFitText(statTxt, info.w * 0.27, statSize, 700), info.x + 16, info.y + info.h * 0.52, statSize, 700, online ? '#7dd3fc' : '#f87171');
   specText('1-9 pilih tim · F fokus · G grid · + / − zoom · R reset · Esc keluar', info.x + 16, info.y + info.h - 12, Math.max(8, Math.min(11, info.h * 0.11)), 600, '#64748b');
   const qx = info.x + info.w * 0.31;
@@ -3155,7 +3184,7 @@ function specDrawResultOverlay(L) {
   const reason = result.reason === 'time' ? 'Waktu habis' : result.reason === 'host' ? 'Diakhiri host' : 'Pertandingan selesai';
   let sub = reason;
   if (result.tied && Array.isArray(result.winners)) sub += ' · ' + result.winners.map((t) => t.name).join(' · ') + ' berbagi posisi teratas';
-  else if (winner) sub += ' · ' + (winner.score || 0) + ' pts · ' + ((winner.floor || 0) * 100) + ' m';
+  else if (winner) sub += ' · ' + ((winner.floor || 0) * 100) + ' m · ' + (winner.score || 0) + ' pts';
   specText(specFitText(sub, r.w - pad * 2, subSize, 700), cx, y, subSize, 700, '#94a3b8', 'center');
   y += subSize * 2.1;
 
@@ -3179,7 +3208,7 @@ function specDrawResultOverlay(L) {
     specText(medal, r.x + pad + 13, ry + (rowH - 4) / 2, rowFont, 900, '#fbbf24', 'left');
     const nameMax = rowW - 150;
     specText(specFitText(team.name || 'TIM', nameMax, rowFont, 800), r.x + pad + 40, ry + (rowH - 4) / 2, rowFont, 800, '#f8fafc', 'left');
-    specText((Number(team.score) || 0) + ' pts · ' + ((Number(team.floor) || 0) * 100) + ' m', r.x + r.w - pad - 12, ry + (rowH - 4) / 2, rowFont, 900, '#7dd3fc', 'right');
+    specText(((Number(team.floor) || 0) * 100) + ' m · ' + (Number(team.score) || 0) + ' pts', r.x + r.w - pad - 12, ry + (rowH - 4) / 2, rowFont, 900, '#7dd3fc', 'right');
   }
   if (!teams.length) {
     specText('Tidak ada tim pada pertandingan ini.', cx, y + rowFont, rowFont, 700, '#64748b', 'center');

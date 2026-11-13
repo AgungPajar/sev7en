@@ -106,8 +106,12 @@ Ringkasan alur permainan (solo, mabar, reconnect) ada di
   kembali ke lobby (bukan dihapus) dan host memakai **MAIN LAGI** untuk ronde
   berikutnya. Kode room hanya mati lewat **HAPUS ROOM**, TTL 2 jam, atau restart
   server.
-- **Pemenang dihitung server** dari skor terakhir: skor tertinggi, lalu `floor`,
-  lalu nama. Hasil resmi dikirim ke pemain, host, dan spectator lewat `game_end`.
+- **Pemenang dihitung server** dari keadaan terakhir: **ketinggian (`floor`)
+  tertinggi, lalu skor, lalu nama**. Tim dengan ketinggian lebih tinggi menang
+  walau poinnya lebih kecil; seri hanya bila ketinggian dan skor sama. Hasil resmi
+  dikirim ke pemain, host, dan spectator lewat `game_end`.
+- **Jawaban salah memotong poin 50%** (minimum 100; skor 0 dan 100 tidak
+  terpotong) dan menurunkan ketinggian 100 m, kecuali saat masih di tanah.
 - Panel admin bukan sistem login: halaman bisa dibuka siapa saja, tetapi membuat
   room memerlukan password yang benar.
 

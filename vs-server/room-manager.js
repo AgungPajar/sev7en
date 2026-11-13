@@ -65,22 +65,22 @@ export function publicTeam(t) {
 }
 
 /**
- * Klasemen akhir: skor tertinggi menang; bila skor sama, ketinggian (floor)
+ * Klasemen akhir: ketinggian (floor) tertinggi menang; bila floor sama, skor
  * lebih tinggi menang; nama dipakai sebagai tie-break agar urutan deterministik.
  */
 export function rankTeams(r) {
   return [...r.teams.values()]
     .map(publicTeam)
     .sort((a, b) =>
-      b.score - a.score ||
       b.floor - a.floor ||
+      b.score - a.score ||
       a.name.localeCompare(b.name) ||
       a.id.localeCompare(b.id));
 }
 
 /**
  * Hasil resmi satu pertandingan. `winner` null bila posisi teratas seri
- * (skor & floor sama); `winners` selalu berisi tim di posisi teratas.
+ * (floor & skor sama); `winners` selalu berisi tim di posisi teratas.
  */
 export function matchResult(r, reason = 'host', now = Date.now()) {
   const teams = rankTeams(r).map((team, i) => ({ ...team, rank: i + 1 }));
@@ -88,13 +88,13 @@ export function matchResult(r, reason = 'host', now = Date.now()) {
   if (!teams.length) {
     return { reason, endedAt: now, round, winner: null, tied: false, winners: [], teams: [] };
   }
-  const top = teams.filter((team) => team.score === teams[0].score && team.floor === teams[0].floor);
+  const top = teams.filter((team) => team.floor === teams[0].floor && team.score === teams[0].score);
   const tied = top.length > 1;
   // Posisi teratas yang seri semuanya rank 1; tim berikutnya tetap memakai rank
   // klasemen aslinya (mis. 1, 1, 3) supaya kartu hasil tidak menulis 🥈 untuk seri.
   if (tied) {
     for (const team of teams) {
-      if (team.score === teams[0].score && team.floor === teams[0].floor) team.rank = 1;
+      if (team.floor === teams[0].floor && team.score === teams[0].score) team.rank = 1;
     }
   }
   const winners = top.map((team) => ({ ...team }));
@@ -538,7 +538,7 @@ export class RoomManager {
         type: 'leaderboard',
         teams: [...r.teams.values()]
           .map(x => ({ id: x.id, name: x.name, score: x.score, floor: x.floor, streak: x.streak }))
-          .sort((a, b) => b.score - a.score),
+          .sort((a, b) => b.floor - a.floor || b.score - a.score || a.name.localeCompare(b.name)),
       });
       return;
     }
@@ -574,7 +574,7 @@ export class RoomManager {
         type: 'leaderboard',
         teams: [...r.teams.values()]
           .map(x => ({ id: x.id, name: x.name, score: x.score, floor: x.floor }))
-          .sort((a, b) => b.score - a.score),
+          .sort((a, b) => b.floor - a.floor || b.score - a.score || a.name.localeCompare(b.name)),
       });
       return;
     }

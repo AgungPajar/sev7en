@@ -280,7 +280,7 @@ describe('vs-server — hasil pertandingan', () => {
     ...extra,
   });
 
-  it('rankTeams orders by score, then floor, then team name', () => {
+  it('rankTeams orders by height (floor), then score, then team name', () => {
     const room = makeRoom([
       { id: 'c', name: 'C', score: 100, floor: 2, streak: 0 },
       { id: 'a', name: 'Alpha', score: 100, floor: 3, streak: 1 },
@@ -289,14 +289,14 @@ describe('vs-server — hasil pertandingan', () => {
     ]);
     assert.deepEqual(
       rankTeams(room).map((t) => `${t.name}:${t.score}:${t.floor}`),
-      ['Alpha:100:3', 'Beta:100:3', 'C:100:2', 'D:50:9'],
+      ['D:50:9', 'Alpha:100:3', 'Beta:100:3', 'C:100:2'],
     );
   });
 
-  it('matchResult returns the winner, ranking and reason', () => {
+  it('matchResult lets the highest floor win even with fewer points', () => {
     const room = makeRoom([
-      { id: 'a', name: 'Alpha', score: 300, floor: 3, streak: 2 },
-      { id: 'b', name: 'Beta', score: 500, floor: 5, streak: 1 },
+      { id: 'a', name: 'Alpha', score: 900, floor: 3, streak: 2 },
+      { id: 'b', name: 'Beta', score: 400, floor: 6, streak: 1 },
     ]);
     const result = matchResult(room, 'time', 1234);
     assert.equal(result.reason, 'time');
@@ -304,9 +304,20 @@ describe('vs-server — hasil pertandingan', () => {
     assert.equal(result.endedAt, 1234);
     assert.equal(result.tied, false);
     assert.equal(result.winner.name, 'Beta');
-    assert.equal(result.winner.score, 500);
+    assert.equal(result.winner.score, 400);
     assert.deepEqual(result.winners.map((t) => t.name), ['Beta']);
     assert.deepEqual(result.teams.map((t) => [t.rank, t.name]), [[1, 'Beta'], [2, 'Alpha']]);
+  });
+
+  it('matchResult uses points only when heights are equal', () => {
+    const room = makeRoom([
+      { id: 'a', name: 'Alpha', score: 500, floor: 4, streak: 0 },
+      { id: 'b', name: 'Beta', score: 300, floor: 4, streak: 1 },
+    ]);
+    const result = matchResult(room, 'host');
+    assert.equal(result.tied, false);
+    assert.equal(result.winner.name, 'Alpha');
+    assert.deepEqual(result.teams.map((t) => [t.rank, t.name]), [[1, 'Alpha'], [2, 'Beta']]);
   });
 
   it('matchResult marks a tie when score and floor are equal', () => {
@@ -648,6 +659,15 @@ describe('vs-server — live server', () => {
     assert.deepEqual(lb.teams.map((t) => t.score), [120, 50]);
     assert.equal(lb.teams[0].floor, 3);
     assert.equal(lb.teams[0].streak, 2);
+
+    // Ketinggian lebih tinggi menang: Alpha (floor 4, 40 poin) naik ke posisi 1
+    // meskipun poinnya lebih kecil dari Beta (floor 3, 120 poin).
+    a.clear();
+    a.send({ type: 'score_update', score: 40, floor: 4, streak: 0 });
+    lb = await a.next((m) => m.type === 'leaderboard' && m.teams[0] && m.teams[0].name === 'Alpha' && m.teams[0].floor === 4);
+    assert.deepEqual(lb.teams.map((t) => t.name), ['Alpha', 'Beta']);
+    assert.deepEqual(lb.teams.map((t) => t.score), [40, 120]);
+    assert.deepEqual(lb.teams.map((t) => t.floor), [4, 3]);
   });
 
   it('clamps negative score/floor but not streak', async () => {
@@ -706,7 +726,7 @@ describe('vs-server — live server', () => {
     const { c: b } = await joinRoom(code, 'Beta');
     host.send({ type: 'start_game' });
     await a.nextType('game_start');
-    a.send({ type: 'score_update', score: 280, floor: 2, streak: 1 });
+    a.send({ type: 'score_update', score: 900, floor: 2, streak: 1 });
     await a.nextType('leaderboard');
     b.send({ type: 'score_update', score: 650, floor: 5, streak: 2 });
     await b.nextType('leaderboard');
@@ -716,7 +736,7 @@ describe('vs-server — live server', () => {
     const end = await b.nextType('game_end');
     assert.equal(end.reason, 'host');
     assert.equal(end.tied, false);
-    assert.equal(end.winner.name, 'Beta');
+    assert.equal(end.winner.name, 'Beta', 'floor lebih tinggi menang meski poin Alpha lebih besar');
     assert.equal(end.winner.score, 650);
     assert.deepEqual(end.teams.map((t) => [t.rank, t.name]), [[1, 'Beta'], [2, 'Alpha']]);
     await a.nextType('game_end');

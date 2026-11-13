@@ -69,6 +69,19 @@ const SCENARIOS = [
     ],
   },
   {
+    name: 'wrong-fall',
+    label: 'Jawaban salah: turun 1 tangga (100 m) ke platform aman sebelumnya',
+    steps: [
+      { eval: "(async () => { startGame(); const wait = (ms) => new Promise((r) => setTimeout(r, ms)); await wait(700); for (let i = 0; i < 2; i++) { triggerJump(leftOptionPlat && leftOptionPlat.isCorrect ? 'left' : 'right'); await wait(1000); } return { floor: floorLevel, alt: document.getElementById('alt-val').textContent }; })()", wait: 300 },
+      { shot: 'sebelum-salah-200m' },
+      { eval: "(async () => { triggerJump(leftOptionPlat && leftOptionPlat.isCorrect ? 'right' : 'left'); await new Promise((r) => setTimeout(r, 250)); return { state: star.state }; })()", wait: 100 },
+      { shot: 'sedang-jatuh' },
+      { wait: 750 },
+      { shot: 'setelah-salah-100m' },
+      { eval: "(() => ({ floor: floorLevel, alt: document.getElementById('alt-val').textContent, counter: document.getElementById('q-counter').textContent, base: currentBasePlat && currentBasePlat.level }))()", wait: 100 },
+    ],
+  },
+  {
     name: 'mid',
     label: 'Altitud menengah / senja (floorLevel=11, platform di 1100m)',
     steps: [

@@ -147,10 +147,21 @@ tetap menghitung di semua perangkat. Untuk solo, gunakan 5 menit atau tambahkan
 opsi yang konsisten di client. Detail:
 [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 
-### Angka di leaderboard VS aneh (`5m`)
+### Poin turun setelah jawaban salah
 
-Leaderboard menampilkan jumlah tangga dengan akhiran `m`, bukan meter. HUD game
-yang benar (`5 tangga = 500 m`). Ini bug label, bukan bug skor.
+Itu aturan baru, bukan bug. Jawaban salah memotong poin **50%** bila skor saat itu
+lebih dari 100: `skor baru = max(100, floor(skor × 0.5))`. Skor 0 tetap 0 dan skor
+tepat 100 tetap 100. HUD langsung turun dan muncul teks melayang `-N POIN` bila ada
+potongan. Contoh: 360 → 180, 300 → 150, 220 → 110. Detail:
+[06 · Mekanik & Skor](06-mekanik-dan-skor.md).
+
+### Leaderboard mengurutkan ketinggian lebih dulu, bukan poin
+
+Leaderboard, panel admin, dan layar hasil menampilkan **ketinggian (meter) lebih
+dulu**, lalu poin, dan diurutkan dengan aturan yang sama: ketinggian tertinggi,
+baru poin. Tim dengan `500 m · 200 pts` bisa berada di atas tim `400 m · 520 pts`.
+Ini bukan bug label maupun bug skor; pemenang memakai urutan yang sama (lihat
+[06 §8](06-mekanik-dan-skor.md)).
 
 ### Soal terasa berulang / urutannya tidak seperti acak biasa
 
@@ -271,7 +282,7 @@ Ingat: `.env` tidak dibaca otomatis. Set environment lewat PM2/shell.
 | Skor dari client | Bisa dimanipulasi | Pengawasan guru |
 | Bank soal satu tema | Hanya Living Room (50 soal), tanpa pilihan topik | Tambah soal lewat `game.html`; lihat [05](05-menambah-soal.md) |
 | Opsi 10 menit di menu solo | Select tidak punya `600` | Mabar tidak terpengaruh (jam dari server); solo pakai 5 menit |
-| Label `m` di leaderboard | Menyesatkan | Baca sebagai jumlah tangga |
+| Pemenang dari ketinggian | Tim dengan poin lebih besar bisa kalah bila ketinggiannya lebih rendah | Bukan bug; urutannya ketinggian → poin → nama |
 | Tab background | Timer melambat | Jaga tab tetap aktif |
 | Satu instance | Tidak scaling | Cukup untuk satu kelas |
 
@@ -334,10 +345,17 @@ mulai akan mengulang dari awal.
 Tidak dalam satu room (case-insensitive). Gunakan nama unik.
 
 **Apakah pemenang ditentukan otomatis?**
-Ya. Server menghitung pemenang dari skor terakhir saat pertandingan berakhir
-(timer otomatis atau tombol **AKHIRI & UMUMKAN PEMENANG**): skor tertinggi, lalu
-`floor` lebih tinggi, lalu nama. Hasilnya dikirim ke semua pemain, host, dan
-spectator lewat `game_end`.
+Ya. Server menghitung pemenang dari keadaan terakhir saat pertandingan berakhir
+(timer otomatis atau tombol **AKHIRI & UMUMKAN PEMENANG**): **ketinggian (`floor`)
+tertinggi**, lalu skor tertinggi, lalu nama. Tim dengan ketinggian lebih tinggi
+menang walau poinnya lebih kecil; seri hanya bila `floor` dan skor sama. Hasilnya
+dikirim ke semua pemain, host, dan spectator lewat `game_end`.
+
+**Apakah jawaban salah mengurangi poin?**
+Ya. Bila skor saat itu lebih dari 100, skor dipotong 50% dan tidak pernah turun di
+bawah 100 (`max(100, floor(skor × 0.5))`). Skor 0 tetap 0 dan skor tepat 100 tetap
+100. Contoh: 360 → 180, 300 → 150, 220 → 110. Ketinggian juga turun 1 tangga
+(100 m) kecuali saat di tanah.
 
 **Apakah satu kode room bisa dipakai untuk beberapa ronde?**
 Ya. Setelah `game_end`, room kembali ke lobby dan tim tetap terdaftar. Host

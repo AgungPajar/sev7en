@@ -255,7 +255,8 @@ describe('VS client — incoming messages', () => {
     assert.match(html, /🥉/);
     assert.match(html, /4\./);
     assert.match(html, /Team 1/);
-    assert.match(html, /120/);
+    assert.match(html, /1200 m/);
+    assert.match(html, /120 pts/);
     // Only the top 10 are rendered
     assert.ok(!html.includes('Team 11'), '11th team should not be rendered');
     assert.ok(!html.includes('Team 12'), '12th team should not be rendered');
@@ -1463,7 +1464,7 @@ describe('VS client — game over & lobby yang bisa dipakai ulang', () => {
     assert.equal(page.el('vs-result-title').textContent, 'Tim Beta MENANG!');
     assert.match(page.el('vs-result-list').innerHTML, /Tim Beta/);
     assert.match(page.el('vs-result-list').innerHTML, /Tim Alpha \(kamu\)/);
-    assert.match(page.el('vs-result-list').innerHTML, /900 pts · 700 m/);
+    assert.match(page.el('vs-result-list').innerHTML, /700 m · 900 pts/);
     assert.notEqual(page.el('modal-title').textContent, '🎉 WAKTU HABIS!', 'modal solo tidak boleh dipakai di VS');
     assert.equal(VS(page).lastResult.winner.name, 'Tim Beta');
   });

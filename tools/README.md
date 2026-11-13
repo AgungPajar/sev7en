@@ -82,6 +82,7 @@ default diambil sekali di akhir skenario.
 | `solo-start` | `startGame()`, tunggu 900 ms |
 | `play` | `startGame()`, jawab benar 2x: `triggerJump(leftOptionPlat.isCorrect ? 'left' : 'right')`, 800 ms tiap lompatan + tunggu `star.state === 'idle'` sebelum lompatan kedua |
 | `wrong` | `startGame()`, jawab salah, screenshot 250 ms setelah lompatan (awan pecah, bintang jatuh) |
+| `wrong-fall` | `startGame()`, jawab benar 2× (200 m), lalu jawab salah → screenshot sebelum, saat jatuh, dan setelah turun 1 tangga (100 m) |
 | `mid` | `startGame()`, lalu `floorLevel = 9; cam.y = -1800; cam.targetY = -1800; initEnvironment(); spawnNextStairOptions();` (zona senja) |
 | `space` | `startGame()`, lalu `floorLevel = 12; cam.y = -3000; cam.targetY = -3000; initEnvironment(); spawnNextStairOptions();` (zona luar angkasa) |
 | `mobile-portrait` | Viewport 390x844 (mobile), `startGame()`, tunggu 800 ms |

@@ -481,6 +481,10 @@
     let timerInterval = null;
     let gameRunning = false;
 
+    // Penalti jawaban salah: poin dipotong 50%, tidak pernah di bawah 100.
+    const MIN_SCORE = 100;
+    const WRONG_SCORE_FACTOR = 0.5;
+
     function shuffle(arr) {
       const a = [...arr];
       for (let i = a.length - 1; i > 0; i--) {
@@ -698,7 +702,7 @@
         }, 550);
 
       } else {
-        // WRONG -> CLOUD BREAKS, FALLS DOWN BACK TO LAST SAFE STEP!
+        // WRONG -> AWAN PECAH, PEMAIN JATUH 1 TANGGA (100 m) KE BAWAH.
         playSound('wrong');
         plat.status = 'wrong';
         plat.broken = true;
@@ -706,6 +710,11 @@
         star.expression = 'dizzy';
         star.vy = -4; // Slight pop before dropping
 
+        const scoreBefore = score;
+        if (score > MIN_SCORE) {
+          score = Math.max(MIN_SCORE, Math.floor(score * WRONG_SCORE_FACTOR));
+        }
+        const scorePenalty = scoreBefore - score;
         streak = 0;
         updateHUD();
 
@@ -714,10 +723,30 @@
           wx: plat.wx, wy: plat.wy - 85,
           text: `AWAN HANCUR! 💥`, color: '#f87171', alpha: 1
         });
+        if (scorePenalty > 0) {
+          floatingTexts.push({
+            wx: plat.wx, wy: plat.wy - 120,
+            text: `-${scorePenalty} POIN`, color: '#f87171', alpha: 1
+          });
+        }
 
-        // After falling back to the safe platform level, land back on currentBasePlat & load new question
+        // Setelah awan pecah, pemain jatuh 1 tangga (100 m) ke platform aman
+        // sebelumnya. Di tanah (floorLevel 0) tidak ada platform di bawah, jadi
+        // pemain tetap di START dan tidak ada ketinggian yang hilang.
         setTimeout(() => {
           if (!gameRunning) return;
+          if (floorLevel > 0 && letitedPlatforms.length >= 2) {
+            letitedPlatforms.pop();
+            currentBasePlat = letitedPlatforms[letitedPlatforms.length - 1];
+            floorLevel--;
+            cam.targetX = currentBasePlat.wx;
+            cam.targetY = currentBasePlat.wy;
+            updateHUD();
+            floatingTexts.push({
+              wx: currentBasePlat.wx, wy: currentBasePlat.wy - 95,
+              text: 'TURUN 100 m ⬇️', color: '#fbbf24', alpha: 1
+            });
+          }
           star.wx = currentBasePlat.wx;
           star.wy = currentBasePlat.wy - 48;
           star.rotation = 0;

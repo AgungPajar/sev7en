@@ -111,13 +111,16 @@ Soal muncul
    │      └── 550 ms kemudian soal baru muncul
    │
    └── Pilih platform SALAH
-          ├── skor tidak berubah
+          ├── skor dipotong 50% (minimum 100; skor 0 dan 100 tidak terpotong)
+          ├── teks melayang “-N POIN” muncul bila ada potongan
           ├── streak kembali 0
           ├── awan pecah, karakter jatuh
-          └── 900 ms kemudian kembali ke platform aman & soal baru
+          └── 900 ms kemudian turun 1 tangga (−100 m) ke platform aman sebelumnya
+              & soal baru; di tanah (0 m) tetap di START
 ```
 
-- Kamera otomatis naik mengikuti platform terakhir yang benar.
+- Kamera otomatis mengikuti platform aman terakhir: naik saat jawaban benar, turun
+  1 tangga saat jawaban salah.
 - Riwayat platform yang ditampilkan dibatasi 8 tangga terakhir.
 - Pemilihan soal memakai bobot: soal yang belum pernah tampil diprioritaskan, soal
   yang sudah tampil diberi bobot kecil (dikali 0.05 lagi bila masih dalam 6 soal
@@ -153,7 +156,10 @@ bumi sudah jauh di bawah. Ambang perubahan langit dan warna tiap zona dijelaskan
 - Jawaban benar: **100 poin**.
 - Bonus streak: **+20 poin** per jawaban benar berturut-turut, maksimal **+100**.
 - Jadi poin per jawaban benar: 100, 120, 140, 160, 180, lalu 200 (maksimal).
-- Jawaban salah: **0 poin**, streak reset, ketinggian tetap.
+- Jawaban salah: poin dipotong **50%** dengan minimum **100** (skor 0 tetap 0 dan
+  skor tepat 100 tetap 100), streak reset, ketinggian turun **100 m** (1 tangga),
+  kecuali saat sudah di tanah (0 m) tetap di START. Contoh: 360 → 180, 300 → 150,
+  220 → 110.
 
 Contoh 8 jawaban benar berturut-turut:
 
