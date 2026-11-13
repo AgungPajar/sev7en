@@ -10,7 +10,7 @@ peta file, model data, siklus room, dan protokol WebSocket.
 | File | Tanggung jawab |
 |---|---|
 | `index.html` | Landing, modal join, redirect ke `game.html` |
-| `game.html` | Bank soal, engine game solo, renderer 3D software, client mabar (VS) |
+| `game.html` | Bank soal (50 soal tema `living_room`), engine game solo, renderer 3D software, client mabar (VS) |
 | `star_pou_sky_climber.html` | Versi solo tanpa blok VS |
 | `star_pou_vs.html` | Duplikat lama `game.html` (identik saat ini) |
 | `admin/index.html` | UI host: buat room, lobby, mulai, leaderboard, hasil/pemenang, main lagi, hapus room |
@@ -130,7 +130,7 @@ disentuh oleh renderer. Detail rumus proyeksi, geometri, dan tuning ada di
 ```js
 {
   code: 'RQ7K2P',
-  materi: 'all',
+  materi: 'living_room',  // tema tunggal; server hanya meneruskan string
   duration: 180,
   status: 'lobby',        // 'lobby' | 'playing' (setelah selesai kembali 'lobby')
   hostId: 'abc1234',
@@ -175,17 +175,19 @@ Dihitung di server oleh `matchResult(room, reason)` dan disimpan di
   endedAt: 1760000180000,
   round: 2,
   winner: { id, name, score, floor, streak, rank } | null, // null bila seri
-  tied: false,           // true bila skor & floor posisi teratas sama
+  tied: false,           // true bila floor & skor posisi teratas sama
   winners: [ { ...team, rank: 1 } ],  // semua tim di posisi teratas
   teams: [ { ...team, rank: 1 }, { ...team, rank: 2 } ]
 }
 ```
 
-Urutan klasemen (`rankTeams`): skor menurun → `floor` menurun → nama (alfabetis)
-→ id sebagai penentu terakhir agar deterministik. `winner` hanya diisi bila
-posisi teratas tunggal; bila seri, `winner: null`, `tied: true`, dan `winners[]`
-berisi semua tim yang berbagi posisi teratas. Room tanpa tim menghasilkan
-`teams: []`, `winner: null`, `tied: false`.
+Urutan klasemen (`rankTeams`): **`floor` menurun → skor menurun → nama
+(alfabetis)** → id sebagai penentu terakhir agar deterministik. Dengan kata lain,
+ketinggian lebih dulu; poin hanya menentukan bila ketinggiannya sama. `winner`
+hanya diisi bila posisi teratas tunggal; bila `floor` dan skor posisi teratas sama,
+`winner: null`, `tied: true`, dan `winners[]` berisi semua tim yang berbagi posisi
+teratas. Saat seri, tim berikutnya memakai `rank` sesuai klasemen (mis. `1, 1, 3`).
+Room tanpa tim menghasilkan `teams: []`, `winner: null`, `tied: false`.
 
 ### Bentuk publik yang dikirim ke client
 
@@ -194,7 +196,7 @@ berisi semua tim yang berbagi posisi teratas. Room tanpa tim menghasilkan
 ```json
 {
   "code": "RQ7K2P",
-  "materi": "all",
+  "materi": "living_room",
   "duration": 180,
   "status": "lobby",
   "teams": [
@@ -372,13 +374,17 @@ Semua pesan berupa objek JSON dengan field `type`.
 {
   "type": "create_room",
   "adminPassword": "sev7en-admin",
-  "materi": "all",
+  "materi": "living_room",
   "duration": 180
 }
 ```
 
 - Password dibandingkan dengan `ADMIN_PASSWORD`.
-- `materi` default `all`; `duration` default 180.
+- `duration` default 180.
+- `materi` default `all` di server, tetapi form admin/VS selalu mengirim
+  `living_room` (satu-satunya tema). Server **tidak** memvalidasi/whitelist tema.
+- Client menormalkan `materi` yang tidak ada di `QUESTION_BANK` (termasuk `all`
+  dan kode tema lama) menjadi `living_room` saat menerima `game_start`.
 - Balasan sukses: `room_created`.
 
 ### `join_room`
@@ -446,7 +452,7 @@ Semua pesan berupa objek JSON dengan field `type`.
 - Hanya diterima saat status room `playing`.
 - `score` dan `floor` di-clamp minimal 0.
 - `streak` disimpan apa adanya.
-- Menyiarkan `leaderboard` terurut.
+- Menyiarkan `leaderboard` terurut **`floor` menurun lalu `score` menurun**.
 
 ### `finish`
 
@@ -457,7 +463,7 @@ Semua pesan berupa objek JSON dengan field `type`.
 - Hanya diterima saat status room `playing` (termasuk selama masa grace sebelum
   akhir otomatis). Di luar itu pesan diabaikan.
 - Update final; nilai 0 pada `score`/`floor` diabaikan (memakai nilai sebelumnya).
-- Menyiarkan `leaderboard` (tanpa field `streak`).
+- Menyiarkan `leaderboard` terurut ketinggian lalu skor (tanpa field `streak`).
 - Dikirim client saat timer lokal tim habis, sebelum layar “WAKTU HABIS” sementara
   tampil menunggu hasil resmi.
 
@@ -470,8 +476,9 @@ Semua pesan berupa objek JSON dengan field `type`.
 - Hanya host; pesan dari socket non-host diabaikan. Hanya diproses saat status room
   `playing` — bila host mengirimnya saat tidak ada pertandingan, server membalas
   error `Tidak ada pertandingan yang berjalan`.
-- Menghitung pemenang dari skor terakhir, menyimpan `lastResult`, mengembalikan
-  status room ke `lobby`, lalu menyiarkan `game_end` + `room_update`.
+- Menghitung pemenang dari keadaan terakhir (ketinggian lalu skor), menyimpan
+  `lastResult`, mengembalikan status room ke `lobby`, lalu menyiarkan `game_end` +
+  `room_update`.
 
 ### `delete_room`
 
@@ -542,7 +549,7 @@ Semua pesan berupa objek JSON dengan field `type`.
 | `rejoined_host` | `room`, `round`, `lastResult` | Setelah rejoin_host sukses |
 | `room_update` | `room` | Tim join/disconnect, `start_game`, atau setelah `game_end` |
 | `game_start` | `materi`, `duration`, `serverTime`, `remaining`, `remainingMs`, `round` | Host memulai ronde, rejoin, atau rejoin_host saat `playing` |
-| `leaderboard` | `teams[]` | Skor berubah / finish |
+| `leaderboard` | `teams[]` (terurut `floor` lalu `score`) | Skor berubah / finish |
 | `game_end` | `reason`, `endedAt`, `round`, `winner`, `tied`, `winners[]`, `teams[]` | Host menekan AKHIRI atau timer server habis |
 | `spectate_ok` | `code`, `room`, `startedAt`, `duration`, `remaining`, `remainingMs`, `round`, `lastResult`, `observers` | Setelah `spectate` sukses |
 | `player_state` | `teamId`, `s`, `t` | Relay telemetri tim ke observer |
@@ -584,7 +591,7 @@ Contoh `game_start`:
 ```json
 {
   "type": "game_start",
-  "materi": "food_kitchen",
+  "materi": "living_room",
   "duration": 300,
   "serverTime": 1760000100000,
   "remaining": 297,
@@ -592,6 +599,10 @@ Contoh `game_start`:
   "round": 2
 }
 ```
+
+`materi` diteruskan apa adanya dari room. Client memakai tema tunggal: nilai yang
+tidak ada di `QUESTION_BANK` (mis. `all` dari room lama) dinormalkan ke
+`living_room` sebelum `startGame()` dijalankan.
 
 `round` mulai dari 1 pada ronde pertama dan bertambah setiap `start_game`.
 
@@ -601,14 +612,16 @@ Contoh `leaderboard`:
 {
   "type": "leaderboard",
   "teams": [
-    { "id": "x9k2a", "name": "TIM A", "score": 520, "floor": 4, "streak": 4 },
-    { "id": "p2m7q", "name": "TIM B", "score": 300, "floor": 3, "streak": 0 }
+    { "id": "p2m7q", "name": "TIM B", "score": 200, "floor": 5, "streak": 2 },
+    { "id": "x9k2a", "name": "TIM A", "score": 520, "floor": 4, "streak": 4 }
   ]
 }
 ```
 
-`teams` selalu diurutkan menurun berdasarkan `score`. Pada pesan dari `finish`,
-field `streak` tidak disertakan.
+`teams` diurutkan **`floor` menurun lalu `score` menurun**: TIM B (5 tangga, 200
+poin) tampil di atas TIM A (4 tangga, 520 poin) karena ketinggian lebih dulu, baru
+poin. Tampilan leaderboard menulis ketinggian lebih dulu (mis. `500 m · 200 pts`).
+Pada pesan dari `finish`, field `streak` tidak disertakan.
 
 Contoh `game_end` (objek MatchResult lengkap):
 
@@ -662,7 +675,7 @@ Contoh `spectate_ok`:
   "code": "RQ7K2P",
   "room": {
     "code": "RQ7K2P",
-    "materi": "all",
+    "materi": "living_room",
     "duration": 180,
     "status": "playing",
     "teams": [
@@ -696,7 +709,7 @@ Tonton Live setelah pertandingan):
   "code": "RQ7K2P",
   "room": {
     "code": "RQ7K2P",
-    "materi": "all",
+    "materi": "living_room",
     "duration": 180,
     "status": "lobby",
     "teams": [
@@ -781,7 +794,7 @@ room. Kode `RQ7K2P` tidak bisa dipakai lagi.
 |---|---|---|
 | Persistence | Memori proses | Restart = data hilang |
 | Skor | Client-authoritative | Rawan manipulasi |
-| Pemenang | Dihitung server dari skor terakhir | Manipulasi skor client ikut menentukan pemenang |
+| Pemenang | Dihitung server dari ketinggian lalu skor terakhir | Manipulasi `floor`/skor client ikut menentukan pemenang |
 | Hasil pertandingan | `room.lastResult`, hanya ronde terakhir | Restart = hasil hilang; riwayat multi-ronde tidak disimpan |
 | Ronde | Satu room bisa dipakai banyak ronde | Skor direset tiap ronde; tidak ada podium lintas ronde |
 | Auth host | Hanya `_isHost` di socket | Refresh = kehilangan host |

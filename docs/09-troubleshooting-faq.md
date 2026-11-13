@@ -103,12 +103,17 @@ aktif). Cukup klik sekali; kalau ragu, refresh dan buat satu room baru.
 
 ### Game berhenti di “Loading question...”
 
-Kemungkinan pool soal kosong karena `topic` tidak cocok dengan opsi `<select>`.
-Cek:
+Bank soal sekarang **satu tema** (`living_room`), jadi pool kosong tidak lagi
+disebabkan salah memilih topik di menu. Kalau soal tidak muncul:
 
-1. Nilai `value` topik = `topic` di bank soal.
-2. Console browser untuk error seperti `Cannot read properties of undefined`.
-3. Tambahkan minimal satu soal untuk topik tersebut.
+1. Buka Console browser; cari `SyntaxError` atau error saat membaca `QUESTION_BANK`.
+2. Pastikan `QUESTION_BANK` tidak kosong dan tiap soal punya `topic`, `emoji`,
+   `q`, `correct`, dan `wrong`.
+3. Pastikan `id` soal unik. `id` duplikat tidak membuat game crash, tetapi riwayat
+   anti-ulang kedua soal bertabrakan.
+4. Kalau baru menambah tema, pastikan kode `topic`-nya ada di bank **dan** opsi
+   menu terdaftar; nilai `materi` yang tidak ada di bank dinormalkan ke
+   `living_room`.
 
 ### Halaman blank setelah edit soal
 
@@ -142,10 +147,37 @@ tetap menghitung di semua perangkat. Untuk solo, gunakan 5 menit atau tambahkan
 opsi yang konsisten di client. Detail:
 [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 
-### Angka di leaderboard VS aneh (`5m`)
+### Poin turun setelah jawaban salah
 
-Leaderboard menampilkan jumlah tangga dengan akhiran `m`, bukan meter. HUD game
-yang benar (`5 tangga = 500 m`). Ini bug label, bukan bug skor.
+Itu aturan baru, bukan bug. Jawaban salah memotong poin **50%** bila skor saat itu
+lebih dari 100: `skor baru = max(100, floor(skor × 0.5))`. Skor 0 tetap 0 dan skor
+tepat 100 tetap 100. HUD langsung turun dan muncul teks melayang `-N POIN` bila ada
+potongan. Contoh: 360 → 180, 300 → 150, 220 → 110. Detail:
+[06 · Mekanik & Skor](06-mekanik-dan-skor.md).
+
+### Leaderboard mengurutkan ketinggian lebih dulu, bukan poin
+
+Leaderboard, panel admin, dan layar hasil menampilkan **ketinggian (meter) lebih
+dulu**, lalu poin, dan diurutkan dengan aturan yang sama: ketinggian tertinggi,
+baru poin. Tim dengan `500 m · 200 pts` bisa berada di atas tim `400 m · 520 pts`.
+Ini bukan bug label maupun bug skor; pemenang memakai urutan yang sama (lihat
+[06 §8](06-mekanik-dan-skor.md)).
+
+### Soal terasa berulang / urutannya tidak seperti acak biasa
+
+Pemilihan soal tidak lagi memakai queue yang diacak ulang saat habis, melainkan
+**bobot + jeda anti-ulang**:
+
+- soal yang belum pernah tampil → bobot `1`;
+- soal yang sudah tampil → `0.03 × 0.20^(kemunculan − 1)` (3%, turun ×0.20 tiap
+  kemunculan berikutnya);
+- soal yang masih dalam jeda 6 soal terakhir → dikali `0.05` lagi;
+- bobot minimum `1e-6`, jadi tidak ada soal yang mustahil muncul.
+
+Riwayat disimpan per tab dan bertahan antar ronde/rematch; refresh halaman
+meresetnya. Kalau satu soal terasa terlalu sering, tambah soal atau mulai sesi
+baru lewat refresh. Detail:
+[05 · Menambah Soal §6](05-menambah-soal.md).
 
 ### Tombol “Akhiri & Umumkan Pemenang” tidak muncul
 
@@ -248,8 +280,9 @@ Ingat: `.env` tidak dibaca otomatis. Set environment lewat PM2/shell.
 | Hasil hanya ronde terakhir | Riwayat antar-ronde tidak disimpan | Catat manual bila perlu rekap |
 | Hapus room permanen | Kode tidak bisa dipakai lagi | **MAIN LAGI** untuk ronde berikutnya; buat room baru bila kode mati |
 | Skor dari client | Bisa dimanipulasi | Pengawasan guru |
+| Bank soal satu tema | Hanya Living Room (50 soal), tanpa pilihan topik | Tambah soal lewat `game.html`; lihat [05](05-menambah-soal.md) |
 | Opsi 10 menit di menu solo | Select tidak punya `600` | Mabar tidak terpengaruh (jam dari server); solo pakai 5 menit |
-| Label `m` di leaderboard | Menyesatkan | Baca sebagai jumlah tangga |
+| Pemenang dari ketinggian | Tim dengan poin lebih besar bisa kalah bila ketinggiannya lebih rendah | Bukan bug; urutannya ketinggian → poin → nama |
 | Tab background | Timer melambat | Jaga tab tetap aktif |
 | Satu instance | Tidak scaling | Cukup untuk satu kelas |
 
@@ -260,6 +293,22 @@ Ingat: `.env` tidak dibaca otomatis. Set environment lewat PM2/shell.
 **Apakah admin bisa menambah soal dari panel?**
 Belum. Soal hardcoded di HTML. Ikuti
 [05 · Menambah Soal](05-menambah-soal.md).
+
+**Tema apa yang dipakai dan berapa jumlah soalnya?**
+Satu tema: **Talking about My Living Room**, 50 soal (gabungan `quiz_a` nomor
+1–25 dan `quiz_b` nomor 26–50). Empat topik lama sudah dihapus.
+
+**Apakah bisa memilih tema lain atau mencampur beberapa topik?**
+Tidak lewat UI. Menu solo, form VS, dan panel admin hanya punya opsi Living Room.
+Nilai `materi` lama seperti `all` atau kode topik lama akan dinormalkan client
+menjadi `living_room`. Menambah tema lain butuh perubahan kode (lihat
+[05 §4](05-menambah-soal.md)).
+
+**Kenapa soal yang sudah muncul bisa muncul lagi?**
+Pemilihan soal memakai bobot: soal lama tetap punya peluang kecil dan bisa muncul
+kembali setelah cukup lama, sementara soal baru diprioritaskan. Semua 50 soal tetap
+bisa muncul dalam sesi panjang. Riwayat anti-ulang bertahan antar ronde/rematch
+dan direset saat halaman di-refresh.
 
 **Apakah bisa lebih dari 10 tim?**
 Tidak tanpa mengubah konstanta `MAX_TEAMS` di server. Untuk kelas besar, buat
@@ -296,10 +345,17 @@ mulai akan mengulang dari awal.
 Tidak dalam satu room (case-insensitive). Gunakan nama unik.
 
 **Apakah pemenang ditentukan otomatis?**
-Ya. Server menghitung pemenang dari skor terakhir saat pertandingan berakhir
-(timer otomatis atau tombol **AKHIRI & UMUMKAN PEMENANG**): skor tertinggi, lalu
-`floor` lebih tinggi, lalu nama. Hasilnya dikirim ke semua pemain, host, dan
-spectator lewat `game_end`.
+Ya. Server menghitung pemenang dari keadaan terakhir saat pertandingan berakhir
+(timer otomatis atau tombol **AKHIRI & UMUMKAN PEMENANG**): **ketinggian (`floor`)
+tertinggi**, lalu skor tertinggi, lalu nama. Tim dengan ketinggian lebih tinggi
+menang walau poinnya lebih kecil; seri hanya bila `floor` dan skor sama. Hasilnya
+dikirim ke semua pemain, host, dan spectator lewat `game_end`.
+
+**Apakah jawaban salah mengurangi poin?**
+Ya. Bila skor saat itu lebih dari 100, skor dipotong 50% dan tidak pernah turun di
+bawah 100 (`max(100, floor(skor × 0.5))`). Skor 0 tetap 0 dan skor tepat 100 tetap
+100. Contoh: 360 → 180, 300 → 150, 220 → 110. Ketinggian juga turun 1 tangga
+(100 m) kecuali saat di tanah.
 
 **Apakah satu kode room bisa dipakai untuk beberapa ronde?**
 Ya. Setelah `game_end`, room kembali ke lobby dan tim tetap terdaftar. Host

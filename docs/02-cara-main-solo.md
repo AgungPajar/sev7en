@@ -14,7 +14,7 @@ soal Bahasa Inggris. Tidak perlu server mabar.
 | Field | Default | Keterangan |
 |---|---|---|
 | Nama Tim di Laptop Ini | `TIM BINTANG A` | Ditampilkan di HUD dan hasil akhir; otomatis uppercase |
-| Pilih Materi | Semua Materi | Filter bank soal (lihat tabel di bawah) |
+| Pilih Tema | 🏠 Talking about My Living Room | Satu-satunya tema (50 soal) |
 | Durasi 1 Match | 3 Menit | 2 menit, 3 menit, 5 menit, atau tanpa batas |
 
 4. Klik **🚀 MULAI NAIK TANGGA! (Solo)**.
@@ -24,13 +24,16 @@ soal Bahasa Inggris. Tidak perlu server mabar.
 
 ### Pilihan materi
 
+Bank soal kini hanya punya **satu tema**, jadi tidak ada lagi filter topik atau
+mode gabungan:
+
 | Value | Label di menu | Isi |
 |---|---|---|
-| `all` | Semua Materi Gabungan | Seluruh bank soal |
-| `there_prep` | There is/are, Rooms & Prepositions | There is/are, ruangan, preposisi |
-| `food_kitchen` | Meals, Likes/Dislikes & Kitchen | Makanan, suka/tidak suka, dapur |
-| `continuous_hobby` | Present Continuous & Hobbies | Present continuous, hobi |
-| `routine_transport` | Morning Routine, Numbers & Transport | Rutinitas pagi, angka, transportasi |
+| `living_room` | 🏠 Talking about My Living Room (50 soal) | Seluruh bank: 50 soal ruang tamu |
+
+> Menu hanya menyediakan opsi ini. Di mabar, kalau room mengirim `materi` lama
+> (`all`, `there_prep`, `food_kitchen`, dan sebagainya), client menormalkannya
+> menjadi `living_room` supaya permainan tetap berjalan.
 
 ### Pilihan durasi
 
@@ -108,16 +111,21 @@ Soal muncul
    │      └── 550 ms kemudian soal baru muncul
    │
    └── Pilih platform SALAH
-          ├── skor tidak berubah
+          ├── skor dipotong 50% (minimum 100; skor 0 dan 100 tidak terpotong)
+          ├── teks melayang “-N POIN” muncul bila ada potongan
           ├── streak kembali 0
           ├── awan pecah, karakter jatuh
-          └── 900 ms kemudian kembali ke platform aman & soal baru
+          └── 900 ms kemudian turun 1 tangga (−100 m) ke platform aman sebelumnya
+              & soal baru; di tanah (0 m) tetap di START
 ```
 
-- Kamera otomatis naik mengikuti platform terakhir yang benar.
+- Kamera otomatis mengikuti platform aman terakhir: naik saat jawaban benar, turun
+  1 tangga saat jawaban salah.
 - Riwayat platform yang ditampilkan dibatasi 8 tangga terakhir.
-- Bank soal diacak di awal permainan. Jika semua soal sudah terpakai, bank diacak
-  ulang dan permainan berlanjut.
+- Pemilihan soal memakai bobot: soal yang belum pernah tampil diprioritaskan, soal
+  yang sudah tampil diberi bobot kecil (dikali 0.05 lagi bila masih dalam 6 soal
+  terakhir). Semua soal tetap bisa muncul kembali dalam sesi panjang. Detail:
+  [05 · Menambah Soal §6](05-menambah-soal.md).
 
 Detail angka dan rumus ada di [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
 
@@ -148,7 +156,10 @@ bumi sudah jauh di bawah. Ambang perubahan langit dan warna tiap zona dijelaskan
 - Jawaban benar: **100 poin**.
 - Bonus streak: **+20 poin** per jawaban benar berturut-turut, maksimal **+100**.
 - Jadi poin per jawaban benar: 100, 120, 140, 160, 180, lalu 200 (maksimal).
-- Jawaban salah: **0 poin**, streak reset, ketinggian tetap.
+- Jawaban salah: poin dipotong **50%** dengan minimum **100** (skor 0 tetap 0 dan
+  skor tepat 100 tetap 100), streak reset, ketinggian turun **100 m** (1 tangga),
+  kecuali saat sudah di tanah (0 m) tetap di START. Contoh: 360 → 180, 300 → 150,
+  220 → 110.
 
 Contoh 8 jawaban benar berturut-turut:
 
@@ -182,7 +193,8 @@ Di mode solo, tidak ada leaderboard dan tidak ada pengiriman skor ke server.
 
 - Gunakan **2–3 menit** untuk sesi cepat, **5 menit** untuk sesi latihan lebih
   tenang.
-- Pilih satu materi agar fokus, atau `all` untuk pengulangan campuran.
+- Pilih durasi sesuai kebutuhan; materi selalu **Talking about My Living Room**
+  (satu-satunya tema, 50 soal).
 - Mainkan satu kali percobaan sebelum menilai, supaya siswa paham kontrol.
 - Untuk kompetisi antar kelompok, gunakan mode mabar (maksimal 10 tim) — lihat
   [04 · Mabar Multiplayer](04-mabar-multiplayer.md).

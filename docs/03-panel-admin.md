@@ -33,7 +33,7 @@ Pada kartu **Buat Room Baru**:
 
 | Field | Pilihan | Catatan |
 |---|---|---|
-| Materi | Semua Materi, There is/are & Ruangan, Food & Kitchen, Present Continuous + Hobby, Routine + Transport | Dikirim ke semua tim |
+| Tema | 🏠 Talking about My Living Room (50 soal) — satu-satunya opsi | Dikirim ke semua tim |
 | Durasi | 3 Menit, 5 Menit, 10 Menit, Tanpa Batas | Dikirim ke semua tim; baca catatan timer di [06 · Mekanik & Skor](06-mekanik-dan-skor.md) |
 | Password Admin | Input password | Wajib diisi |
 
@@ -107,9 +107,10 @@ Hal yang perlu dijaga:
 - **Tekan mulai sekali per ronde.** Selama pertandingan berjalan, tombol berubah
   menjadi **⏳ SEDANG BERMAIN** dan tidak bisa diklik. Setelah pertandingan selesai,
   tombol menjadi **🔁 MAIN LAGI** (lihat bagian 7 dan 8).
-- `start_game` tetap boleh dikirim dari **lobby** untuk memulai ronde baru; server
-  tidak menolak bila status sudah `playing` (pesan kedua berarti merestart ronde
-  yang sedang berjalan), jadi jangan menekan dua kali.
+- `start_game` tetap boleh dikirim dari **lobby** untuk memulai ronde baru. Bila
+  dikirim saat status sudah `playing`, server menolaknya dengan
+  `Pertandingan sedang berjalan` dan ronde yang berjalan tidak direset, jadi klik
+  ganda aman.
 - Jika belum ada tim, server menolak dengan `Belum ada tim join`.
 - Hanya socket host yang boleh memulai. Kalau tab admin di-refresh, koneksi host
   hilang dan tombol mulai tidak lagi dianggap host; server membalas
@@ -122,13 +123,13 @@ Hal yang perlu dijaga:
 Setelah permainan berjalan:
 
 - Panel **Leaderboard Live** muncul di kolom kanan, di samping daftar tim.
-- Data diurutkan dari skor tertinggi.
+- Data diurutkan dari **ketinggian tertinggi**, lalu skor tertinggi.
 - Tiga teratas mendapat indikator 🥇🥈🥉.
 - Update dikirim dari browser masing-masing tim (throttle ±400 ms), jadi hampir
   real-time tetapi tidak frame-perfect.
-- Angka `floor` dari server ditampilkan sebagai “m” di leaderboard dalam game;
-  nilainya sebenarnya **jumlah tangga**, bukan meter. Lihat catatan di
-  [06 · Mekanik & Skor](06-mekanik-dan-skor.md).
+- Setiap baris menampilkan ketinggian dalam meter lebih dulu, lalu poin (mis.
+  `500 m · 520 pts`). Urutan ini sama dengan aturan pemenang: ketinggian lebih
+  dulu, baru poin.
 
 Status room yang mungkin terlihat:
 
@@ -143,7 +144,7 @@ room:
 
 - ikon 🏆 untuk pemenang, 🤝 untuk seri, 🏁 bila tidak ada tim,
 - nama pemenang + “MENANG!”, atau daftar tim yang berbagi posisi teratas bila seri,
-- poin dan ketinggian pemenang (mis. `900 pts · 700 m`),
+- ketinggian dan poin pemenang (mis. `700 m · 900 pts`),
 - alasan berakhirnya pertandingan — **Waktu habis** (`reason: "time"`) atau
   **Diakhiri host** (`reason: "host"`) — plus nomor ronde dan catatan bahwa lobby
   siap dipakai lagi.
@@ -299,9 +300,9 @@ Isi kartu:
 | Bagian | Isi |
 |---|---|
 | Kicker | `GAME OVER · RONDE n` |
-| Ikon & judul | 🏆 **NAMA TIM MENANG!**, 🤝 **SERI!** (bila skor & floor posisi teratas sama), atau 🏁 **SELESAI** |
-| Subjudul | alasan **Waktu habis** / **Diakhiri host**, poin + ketinggian pemenang, atau daftar tim yang berbagi posisi teratas |
-| Klasemen | satu baris per tim berisi medali `rank` (1..n), nama, `poin pts · N m` |
+| Ikon & judul | 🏆 **NAMA TIM MENANG!**, 🤝 **SERI!** (bila `floor` & skor posisi teratas sama), atau 🏁 **SELESAI** |
+| Subjudul | alasan **Waktu habis** / **Diakhiri host**, ketinggian + poin pemenang, atau daftar tim yang berbagi posisi teratas |
+| Klasemen | satu baris per tim berisi medali `rank` (1..n), nama, `N m · poin pts` |
 | Tombol | **LIHAT KAMERA** dan **KELUAR** |
 
 Perilaku tombol:
@@ -336,8 +337,9 @@ mereset snapshot kamera tiap tim, dan status kembali **BERMAIN mm:ss**.
 ## 7. Mengakhiri pertandingan & mengumumkan pemenang
 
 Pertandingan bisa berakhir dengan dua cara, dan keduanya menghasilkan alur yang
-sama: server menghitung pemenang dari skor terakhir, menyiarkan `game_end`, lalu
-**mengembalikan room ke status Lobby** (room tidak dihapus, tim tetap terdaftar).
+sama: server menghitung pemenang resmi dari keadaan terakhir (**ketinggian lebih
+dulu, lalu skor**), menyiarkan `game_end`, lalu **mengembalikan room ke status
+Lobby** (room tidak dihapus, tim tetap terdaftar).
 
 ### 7.1 Berakhir otomatis lewat timer server
 
@@ -363,15 +365,19 @@ error `Tidak ada pertandingan yang berjalan` (mis. tombol terkirim dua kali).
 
 ### 7.3 Pemenang dan klasemen resmi
 
-Pemenang dihitung **server**, bukan client, dari skor terakhir yang tersimpan:
+Pemenang dihitung **server**, bukan client, dari keadaan terakhir yang tersimpan
+dengan urutan:
 
-1. skor tertinggi,
-2. bila skor sama — `floor` (jumlah tangga) lebih tinggi,
+1. `floor` (jumlah tangga / ketinggian) tertinggi,
+2. bila `floor` sama — skor tertinggi,
 3. bila masih sama — nama tim (alfabetis) sebagai penentu urutan.
 
-Bila posisi teratas seri pada skor dan floor, `winner` bernilai `null` dan
-`tied: true`; daftar `winners[]` tetap berisi semua tim yang berbagi posisi
-teratas. Field `teams[]` berisi seluruh tim dengan `rank` 1..n.
+Tim dengan ketinggian lebih tinggi menang walaupun poinnya lebih kecil; poin baru
+menentukan bila ketinggiannya sama. Bila posisi teratas seri pada **`floor` dan
+skor**, `winner` bernilai `null` dan `tied: true`; daftar `winners[]` tetap berisi
+semua tim yang berbagi posisi teratas (masing-masing `rank: 1`). Field `teams[]`
+berisi seluruh tim dengan `rank` sesuai klasemen (mis. `1, 1, 3` saat dua tim seri
+di puncak).
 
 `game_end` membawa `reason` (`"time"` / `"host"`), `endedAt`, `round`, `winner`,
 `tied`, `winners[]`, dan `teams[]`. Tim, host, dan observer (spectator) menerima
@@ -460,9 +466,9 @@ Praktik yang disarankan: tekan **HAPUS ROOM** setelah sesi benar-benar selesai
 - Password dikirim lewat WebSocket. Gunakan **HTTPS/WSS** di production agar tidak
   terlihat di jaringan.
 - Tidak ada sesi login, rate limit, atau audit log.
-- Skor berasal dari browser tim dan hanya di-clamp agar tidak negatif; tim teknis
-  bisa memanipulasi skor. Pemenang dihitung server, tetapi tetap dari angka skor
-  yang dikirim client.
+- Skor dan `floor` berasal dari browser tim dan hanya di-clamp agar tidak negatif;
+  tim teknis bisa memanipulasinya. Pemenang dihitung server, tetapi tetap dari
+  angka `floor`/skor yang dikirim client.
 - Siapa pun yang tahu kode room bisa join selama lobby, termasuk di antara dua
   ronde. Kode baru mati setelah **HAPUS ROOM**, TTL 2 jam, atau restart server.
 - Host terikat pada socket: socket yang sudah terlepas dari room tidak bisa

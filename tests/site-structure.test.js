@@ -58,6 +58,18 @@ describe('site structure', () => {
     assert.equal(read('star_pou_vs.html'), read('game.html'));
   });
 
+  it('offers exactly one Living Room theme in the game and the admin panel', () => {
+    for (const file of ['game.html', 'admin/index.html']) {
+      const html = read(file);
+      assert.ok(html.includes('value="living_room"'), `${file} is missing the living_room option`);
+      assert.ok(
+        !/value="(?:all|there_prep|food_kitchen|continuous_hobby|routine_transport)"/.test(html),
+        `${file} still offers a retired theme option`,
+      );
+    }
+    assert.match(read('admin/index.html'), /<select id="materi">[\s\S]*?<option value="living_room">/);
+  });
+
   it('the landing page links to the game and the admin panel', () => {
     const html = read('index.html');
     assert.ok(html.includes('/game.html'));

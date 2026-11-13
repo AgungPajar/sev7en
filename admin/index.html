@@ -164,15 +164,11 @@ body.spec-open{overflow:hidden}
     <!-- Login / Create -->
     <div class="card" id="loginCard">
       <h3><span data-lucide="plus-circle" style="color:var(--gold)"></span> Buat Room Baru</h3>
-      <p class="desc">Atur materi &amp; durasi, ketik password admin, lalu generate kode room untuk dibagikan.</p>
+      <p class="desc">Atur tema &amp; durasi, ketik password admin, lalu generate kode room untuk dibagikan.</p>
       <div class="row">
-        <div class="f1"><label>Materi</label>
+        <div class="f1"><label>Tema</label>
           <select id="materi">
-            <option value="all">Semua Materi (Campuran)</option>
-            <option value="there_prep"> There is/are &amp; Ruangan</option>
-            <option value="food_kitchen"> Food &amp; Kitchen</option>
-            <option value="continuous_hobby"> Present Continuous + Hobby</option>
-            <option value="routine_transport"> Routine + Transport</option>
+            <option value="living_room">🏠 Talking about My Living Room (50 soal)</option>
           </select>
         </div>
         <div class="f1"><label>Durasi</label>
@@ -331,7 +327,7 @@ function showResult(m){
   } else if(m.winner){
     trophyText='🏆';
     whoText=m.winner.name+' MENANG!';
-    scoreText=(m.winner.score||0)+' pts · '+((m.winner.floor||0)*100)+' m';
+    scoreText=((m.winner.floor||0)*100)+' m · '+(m.winner.score||0)+' pts';
   }
   if(trophy) trophy.textContent=trophyText;
   if(who) who.textContent=whoText;
@@ -361,7 +357,7 @@ function renderLeaderboard(list){
   teams=list||[];
   lb.innerHTML=teams.map((t,i)=>{
     const medal=i===0?'<span style="color:#fbbf24">🥇</span>':i===1?'🥈':i===2?'🥉':(i+1)+'.';
-    return `<div class="team-item ${i===0?'lb-top':''}"><span class="rank">${medal}</span><span class="nm">${t.name}</span><span class="pts">${t.score}</span></div>`;
+    return `<div class="team-item ${i===0?'lb-top':''}"><span class="rank">${medal}</span><span class="nm">${t.name}</span><span class="pts">${(t.floor||0)*100} m · ${t.score||0} pts</span></div>`;
   }).join('') || '<div class="empty">Belum ada data.</div>';
 }
 
@@ -469,7 +465,7 @@ function renderTeams(list){
     <div class="team-item">
       <span class="rank">${i+1}</span>
       <span class="nm">${t.name}</span>
-      <span class="pts">${t.score} pts</span>
+      <span class="pts">${(t.floor||0)*100} m · ${t.score} pts</span>
     </div>`).join('');
 }
 

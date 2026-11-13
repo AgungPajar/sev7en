@@ -26,7 +26,7 @@ join sebagai tim dari tab/perangkat lain memakai nama tim. Menonton lewat
 ADMIN                              TIM 1..10
   │                                  │
   ├─ buka /admin/                    │
-  ├─ isi password + materi + durasi  │
+  ├─ isi password + durasi (Living)  │
   ├─ Buat Room ──► kode 6 huruf      │
   ├─ bagikan kode/link ─────────────►│
   │                                  ├─ buka link
@@ -102,16 +102,17 @@ salah baca.
 
 ## 5. Di dalam permainan
 
-- Semua tim memakai **materi dan durasi yang sama** dari room.
-- Setiap browser tetap mengacak **urutan soal sendiri**, jadi tiap tim mendapat
-  urutan berbeda. Platform jawaban juga diacak kiri/kanan per soal.
+- Semua tim memakai **materi dan durasi yang sama** dari room. Materi saat ini satu
+  tema: **Talking about My Living Room** (50 soal).
+- Setiap browser punya riwayat anti-ulang dan urutan soal sendiri, jadi urutan
+  antar tim berbeda. Platform jawaban juga diacak kiri/kanan per soal.
 - Progres, skor, streak, dan ketinggian dihitung **lokal di browser**.
 - Browser mengirim `score_update` berisi `score`, `floor`, dan `streak` maksimal
   sekali per ±400 ms.
 - Browser juga mengirim `player_state` (telemetri kamera) ±8×/detik. Server hanya
   meneruskannya ke observer admin di room itu, bukan ke tim lain.
-- Server menyimpan nilai terakhir, mengurutkan, lalu menyiarkan `leaderboard` ke
-  host dan semua tim.
+- Server menyimpan nilai terakhir, mengurutkan berdasarkan **ketinggian lalu skor**,
+  lalu menyiarkan `leaderboard` ke host dan semua tim.
 - Pojok kanan atas game menampilkan kode room, jumlah tim, dan leaderboard.
 - Timer di leaderboard dan status spectator dihitung dari `remainingMs` yang
   dikirim server (jam yang sama dengan HUD pemain), bukan dari jam masing-masing
@@ -122,8 +123,8 @@ salah baca.
 
 Perbedaan tampilan yang perlu diketahui:
 
-- Di leaderboard VS, angka `floor` ditulis dengan akhiran `m`, padahal isinya
-  jumlah tangga. Ketinggian sebenarnya = `floor × 100 m` (lihat HUD).
+- Leaderboard dan klasemen menampilkan **ketinggian lebih dulu**, baru poin (mis.
+  `500 m · 520 pts`); urutannya juga ketinggian tertinggi lalu skor.
 - Skor bersifat **client-authoritative**; server memercayai angka dari browser
   (hanya nilai negatif yang di-clamp ke 0).
 
@@ -213,11 +214,16 @@ kecilkan jendela, tutup tab lain, atau pakai mode fokus (tombol `F`).
 
 ### 7.3 Pemenang resmi dan klasemen
 
-Pemenang dihitung **server** dari skor terakhir, dengan urutan klasemen:
+Pemenang dihitung **server** dari keadaan terakhir, dengan urutan klasemen:
 
-1. skor tertinggi,
-2. bila skor sama — `floor` (jumlah tangga) lebih tinggi,
+1. **ketinggian (`floor`) tertinggi** — tim yang naik lebih tinggi menang walau
+   poinnya lebih kecil,
+2. bila `floor` sama — skor tertinggi,
 3. bila masih sama — nama tim (alfabetis).
+
+Seri hanya terjadi bila `floor` **dan** skor posisi teratas sama; saat itu
+`winner` bernilai `null`, `tied: true`, dan `winners[]` berisi semua tim di posisi
+teratas (rank 1).
 
 `game_end` membawa `reason` (`"time"` atau `"host"`), `endedAt`, `round`,
 `winner` (objek tim atau `null` bila seri), `tied`, `winners[]` (semua tim di
@@ -225,7 +231,7 @@ posisi teratas), dan `teams[]` terurut klasemen dengan field `rank` 1..n. Pesan
 yang sama diterima tim, host, dan observer spectator.
 
 Di browser tim, layar hasil menampilkan **pemenang** (atau **SERI**), alasan,
-poin + ketinggian pemenang, dan klasemen akhir dengan medali. Tombol
+ketinggian + poin pemenang, dan klasemen akhir dengan medali. Tombol
 **KEMBALI KE LOBI** mengembalikan tim ke waiting room.
 
 ### 7.4 Setelah hasil: lobby tetap hidup
@@ -377,7 +383,7 @@ hilang), rejoin tidak menemukan room dan host harus membuat room baru.
 | Join hanya saat lobby | Tim terlambat harus menunggu ronde selesai; room kembali lobby di antara ronde |
 | Rejoin hanya saat socket putus (tanpa refresh) | Refresh = kehilangan slot |
 | Tanpa database | Restart server = room hilang |
-| Pemenang resmi per ronde | Dihitung server dari skor terakhir; tidak ada podium/riwayat lintas ronde |
+| Pemenang resmi per ronde | Dihitung server dari ketinggian lalu skor; tidak ada podium/riwayat lintas ronde |
 | HAPUS ROOM permanen | Kode room tidak bisa dipakai lagi |
 | Skor dari client | Rawan manipulasi, termasuk memengaruhi pemenang |
 | Telemetri spectator 8 Hz | Gerakan di pane diinterpolasi; bukan stream video |

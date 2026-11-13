@@ -2,7 +2,10 @@
 
 Game kuis Bahasa Inggris bertema naik tangga awan ke luar angkasa. Pemain menjawab
 soal dengan memilih tangga kiri/kanan; jawaban benar menaikkan bintang satu tingkat,
-jawaban salah membuat awan hancur dan pemain jatuh ke pijakan aman terakhir.
+jawaban salah membuat awan hancur, memotong poin **50%** (minimum 100), dan membuat
+pemain jatuh **1 tangga (100 m)** ke pijakan aman sebelumnya. Bank soal berisi
+**50 soal satu tema**, *Talking about My Living Room* (gabungan quiz_a 1–25 +
+quiz_b 26–50).
 
 Dunia permainan ditampilkan dalam **3D** memakai renderer software buatan sendiri:
 proyeksi perspektif, painter's algorithm, dan shading toon digambar ke Canvas 2D —
@@ -163,15 +166,17 @@ Source server, test, `.git`, dan path traversal → `404`.
 ### 1. Alur solo
 
 1. Buka `/` → klik **Main Sendiri** → `/game.html`.
-2. Isi nama tim, pilih **materi** (4 topik atau gabungan) dan **durasi**
-   (2/3/5 menit atau tanpa batas).
+2. Isi nama tim, lalu pilih **durasi** (2/3/5 menit atau tanpa batas). Materi
+   otomatis **Talking about My Living Room** — satu-satunya tema (50 soal).
 3. Klik **MULAI NAIK TANGGA**. Kamera 3D menampilkan pulau bumi; bintang mulai dari
    tanah dan dua awan jawaban muncul di atasnya.
 4. Pilih dengan panah kiri/kanan (atau `A`/`D`, atau klik/tap awan).
 5. Jawaban **benar**: naik satu tangga, `+100` poin, ditambah bonus streak `+20`
    untuk tiap jawaban benar beruntun setelahnya (maksimal `+100`).
-6. Jawaban **salah**: awan hancur, streak kembali `0`, bintang jatuh dan berputar
-   ke pijakan aman terakhir, lalu soal baru muncul.
+6. Jawaban **salah**: awan hancur, streak kembali `0`, poin dipotong **50%**
+   (minimum 100; skor 0 dan tepat 100 tidak terpotong) dengan teks melayang
+   `-N POIN`, bintang jatuh turun **1 tangga (100 m)** ke pijakan aman sebelumnya
+   (di tanah tetap di START), lalu soal baru muncul.
 7. Ketinggian = `tangga × 100 m`. Zona berubah di tangga 4 (awan), 8 (senja),
    12 (luar angkasa); langit 3D bertransisi mengikuti ketinggian kamera, termasuk
    bintang, bulan, dan planet bercincin di zona paling atas.
@@ -181,9 +186,9 @@ Mode solo tidak menyentuh WebSocket sama sekali.
 
 ### 2. Alur mabar (VS)
 
-1. **Host** buka `/admin/`, isi password admin, pilih materi + durasi (3/5/10
-   menit atau tanpa batas), klik **Buat Room**. Bisa juga dari `/game.html`
-   (kartu VS).
+1. **Host** buka `/admin/`, isi password admin, pilih durasi (3/5/10 menit atau
+   tanpa batas), klik **Buat Room**. Materi otomatis **Talking about My Living
+   Room** (satu-satunya opsi). Bisa juga dari `/game.html` (kartu VS).
 2. Server membuat kode **6 karakter** (tanpa `I`, `O`, `0`, `1`), status room
    `lobby`, kapasitas **10 tim**.
 3. Host membagikan kode atau link. Link dibuat dari `location.origin`, jadi host
@@ -197,8 +202,9 @@ Mode solo tidak menyentuh WebSocket sama sekali.
    mereset skor/telemetri semua tim, lalu menyiarkan
    `game_start{materi, duration, serverTime, remaining, remainingMs, round}` ke
    **semua** client sekaligus.
-7. Semua client memakai materi + durasi dari host (bukan pilihan lokal), tetapi
-   **urutan soal diacak per tim**, jadi tidak ada saling contekan posisi.
+7. Semua client memakai materi + durasi dari host (bukan pilihan lokal; materi
+   satu tema Living Room), tetapi **pemilihan soal dilakukan per tim** dengan
+   bobot anti-ulang, jadi urutan dan riwayat soal tiap tim berbeda.
 8. **Host** bisa menekan **🔴 Tonton Live** di panel admin setelah room dibuat.
    Panel memasang overlay iframe (tombol **Reload** / **Buka Tab Baru** /
    **Tutup**) berisi `/game.html?code=<KODE>&spectate=1`; halaman itu menampilkan
@@ -208,15 +214,16 @@ Mode solo tidak menyentuh WebSocket sama sekali.
 9. Selama bermain, tiap client mengirim `score_update{score, floor, streak}`
    maksimal tiap **400 ms**, sekaligus `player_state` (telemetri kamera) sekitar
    **8×/detik** yang hanya diteruskan server ke observer admin. Server menyimpan
-   skor (diklem ≥ 0) lalu menyiarkan `leaderboard` terurut skor menurun ke host +
-   semua tim.
+   nilai terakhir lalu menyiarkan `leaderboard` terurut **ketinggian lalu skor** ke
+   host + semua tim; tampilan barisnya ketinggian dulu (mis. `500 m · 520 pts`).
 10. **Akhir ronde** ditentukan server: otomatis pada `duration × 1000 + 1200 ms`
     (grace 1200 ms untuk menerima `finish` skor akhir), atau saat host menekan
     **AKHIRI & UMUMKAN PEMENANG** (untuk durasi Tanpa Batas, hanya lewat tombol
-    ini). Server menghitung pemenang dari skor terakhir (skor → `floor` → nama),
-    menyiarkan `game_end{reason, endedAt, round, winner, tied, winners[], teams[]}`,
-    lalu **mengembalikan room ke `lobby`**. Pemain melihat pemenang + klasemen dan
-    menekan **KEMBALI KE LOBI**; spectator admin melihat kartu GAME OVER.
+    ini). Server menghitung pemenang dari keadaan terakhir (**ketinggian → skor →
+    nama**), menyiarkan `game_end{reason, endedAt, round, winner, tied, winners[],
+    teams[]}`, lalu **mengembalikan room ke `lobby`**. Pemain melihat pemenang +
+    klasemen dan menekan **KEMBALI KE LOBI**; spectator admin melihat kartu GAME
+    OVER.
 11. **Host** menekan **🔁 MAIN LAGI** untuk ronde berikutnya di lobby yang sama:
     `round` bertambah dan skor/floor/streak direset saat `start_game` berikutnya.
     Tim baru masih bisa join di antara ronde. Room hanya hilang lewat **HAPUS
@@ -287,7 +294,7 @@ Semua pesan JSON, satu field `type`.
 | `room_created` / `joined` / `rejoined` / `rejoined_host` | Konfirmasi + snapshot room (`rejoined`/`rejoined_host` + `round`/`lastResult`) |
 | `room_update` | Daftar tim / status room berubah (join, disconnect, mulai, setelah `game_end`) |
 | `game_start` | Ronde baru: `materi`, `duration`, `serverTime`, `remaining`/`remainingMs` (sisa waktu dari server; `null` = Tanpa Batas), `round` |
-| `leaderboard` | Tim terurut skor menurun |
+| `leaderboard` | Tim terurut **ketinggian lalu skor** (tampilan: `m` dulu, baru `pts`) |
 | `game_end` | Hasil resmi (`MatchResult`): `reason` (`time`/`host`), `endedAt`, `round`, `winner`, `tied`, `winners[]`, `teams[]` ber-`rank` |
 | `spectate_ok` | Konfirmasi observer + snapshot room & telemetri terakhir (+ `remaining`, `round`, `lastResult`) |
 | `player_state` | Telemetri tim (`{teamId, s, t}`), relay hanya ke observer |
@@ -313,14 +320,14 @@ Detail model data & pesan: [docs/08-arsitektur-dan-protokol.md](docs/08-arsitekt
 Butuh **Node.js 22+** (global `WebSocket`). Jalankan semua dari root project:
 
 ```bash
-npm test        # 5 file test game/renderer/struktur/landing (374 test), --test-isolation=none
-npm run test:vs-server   # suite server WebSocket Node (83 test: 82 lulus, 1 gagal pre-existing)
+npm test        # 5 file test game/renderer/struktur/landing (398 test), --test-isolation=none
+npm run test:vs-server   # suite server WebSocket Node (84 test: 83 lulus, 1 gagal pre-existing)
 ```
 
-Total Node: **457 test** — **456 lulus**, **1 gagal pre-existing** di
+Total Node: **482 test** — **481 lulus**, **1 gagal pre-existing** di
 `tests/vs-server.test.js` (`supports rejoining a team after a disconnect`, yang
 mengakses `serverTeam.ws._teamId` internal; sengaja tidak diubah). Suite klien
-`tests/game-vs-client.test.js` sendiri berisi **110 test** (semua lulus).
+`tests/game-vs-client.test.js` sendiri berisi **111 test** (semua lulus).
 
 Atau per file:
 
@@ -366,7 +373,7 @@ node tools/capture3d.mjs \
   --scenario=all
 ```
 
-Skenario: `menu`, `solo-start`, `play`, `wrong`, `mid`, `space`,
+Skenario: `menu`, `solo-start`, `play`, `wrong`, `wrong-fall`, `mid`, `space`,
 `climb-history`, `mobile-portrait`, `mobile-landscape`, `fps`. Hasil PNG masuk ke
 `.shots/<timestamp>/` beserta `summary.json`. Skenario `fps` mengukur frame rate
 renderer — pada mesin uji Edge headless tanpa GPU di 1280×800 hasilnya ±55–61 fps
@@ -417,8 +424,10 @@ Daftar lengkap: [docs/09-troubleshooting-faq.md](docs/09-troubleshooting-faq.md)
   kualitas/fps mengikuti kemampuan perangkat. Tampilan 3D tidak mengubah gameplay,
   skor, soal, HUD, maupun protokol VS.
 - **Skor dari client** (client-authoritative, diklem ≥ 0). Pemenang dihitung server
-  dari skor ini, jadi cocok untuk kelas / kelompok tertutup, bukan kompetisi publik
-  berhadiah.
+  dari `floor` dan skor ini (ketinggian lebih dulu, baru poin), jadi cocok untuk
+  kelas / kelompok tertutup, bukan kompetisi publik berhadiah.
+- **Pemenang dari ketinggian**: tim dengan poin lebih besar bisa kalah bila
+  ketinggiannya lebih rendah. Seri hanya bila `floor` dan skor sama.
 - **Satu lobby, banyak ronde**: setelah `game_end` room kembali ke `lobby`; host
   memakai **MAIN LAGI** untuk ronde berikutnya (skor direset, `round` bertambah).
   Tidak ada riwayat skor antar-ronde — `lastResult` hanya menyimpan ronde terakhir.

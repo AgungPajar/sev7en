@@ -11,10 +11,7 @@ const closeTo = (actual, expected, eps = 1e-9) =>
   assert.ok(Math.abs(actual - expected) <= eps, `expected ${actual} ≈ ${expected}`);
 
 const TOPIC_COUNTS = {
-  there_prep: 8,
-  food_kitchen: 8,
-  continuous_hobby: 6,
-  routine_transport: 7,
+  living_room: 50,
 };
 
 for (const file of GAME_FILES) {
@@ -25,10 +22,12 @@ for (const file of GAME_FILES) {
     // 1. Question bank
     // ------------------------------------------------------------------
     describe('QUESTION_BANK', () => {
-      it('contains 29 well-formed questions', () => {
+      it('contains 50 well-formed questions', () => {
         const bank = plain(load().get('QUESTION_BANK'));
-        assert.equal(bank.length, 29);
+        assert.equal(bank.length, 50);
         for (const q of bank) {
+          assert.equal(typeof q.id, 'number');
+          assert.ok(Number.isInteger(q.id) && q.id > 0, `invalid id for: ${q.q}`);
           assert.equal(typeof q.topic, 'string');
           assert.ok(q.topic.length > 0);
           assert.equal(typeof q.emoji, 'string');
@@ -41,16 +40,14 @@ for (const file of GAME_FILES) {
           assert.ok(q.wrong.trim().length > 0);
           assert.notEqual(q.correct, q.wrong, `correct === wrong for: ${q.q}`);
         }
+        assert.deepEqual(bank.map((q) => q.id), Array.from({ length: 50 }, (_, i) => i + 1));
       });
 
-      it('uses only the four supported topics with the expected distribution', () => {
+      it('uses the single Living Room theme for every question', () => {
         const bank = plain(load().get('QUESTION_BANK'));
         const counts = {};
         for (const q of bank) counts[q.topic] = (counts[q.topic] || 0) + 1;
         assert.deepEqual(counts, TOPIC_COUNTS);
-        for (const [topic, count] of Object.entries(counts)) {
-          assert.ok(count >= 6, `topic ${topic} only has ${count} questions`);
-        }
       });
 
       it('has no duplicated question text', () => {
@@ -156,7 +153,7 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('floorLevel'), 0);
         assert.equal(page.get('streak'), 0);
         assert.equal(page.get('timeLeft'), 180);
-        assert.equal(page.get('currentQIndex'), 1);
+        assert.equal(page.get('questionPickSeq'), 1);
 
         const base = plain(page.get('currentBasePlat'));
         assert.equal(base.wx, 0);
@@ -189,11 +186,11 @@ for (const file of GAME_FILES) {
       it('builds the pool from all questions for topic "all"', () => {
         const page = load();
         startGame(page, { topic: 'all' });
-        assert.equal(page.get('activePool.length'), 29);
+        assert.equal(page.get('activePool.length'), 50);
         assert.equal(page.get('activePool.length'), page.get('QUESTION_BANK.length'));
       });
 
-      it('filters the pool by topic', () => {
+      it('filters the pool by the single theme', () => {
         for (const [topic, count] of Object.entries(TOPIC_COUNTS)) {
           const page = load();
           startGame(page, { topic });
@@ -248,7 +245,7 @@ for (const file of GAME_FILES) {
       it('labels the options with the current question answers', () => {
         const page = load();
         startGame(page);
-        const q = plain(page.get('activePool[0]'));
+        const q = plain(page.get('currentQuestion'));
         const left = plain(page.get('leftOptionPlat'));
         const right = plain(page.get('rightOptionPlat'));
 
@@ -481,24 +478,46 @@ for (const file of GAME_FILES) {
     // 7. Stair spawning
     // ------------------------------------------------------------------
     describe('spawnNextStairOptions()', () => {
-      it('advances through the question pool and updates the prompt', () => {
+      it('draws a question from the pool and updates the prompt', () => {
         const page = load();
         startGame(page);
-        const second = plain(page.get('activePool[1]'));
-        page.call('spawnNextStairOptions');
-        assert.equal(page.get('currentQIndex'), 2);
+        const q = plain(page.get('currentQuestion'));
+        assert.ok(plain(page.get('QUESTION_BANK')).some((item) => item.id === q.id));
+        assert.equal(page.get('questionPickSeq'), 1);
         assert.equal(page.el('q-counter').textContent, 'TANGGA 1');
-        assert.equal(page.el('q-emoji').textContent, second.emoji);
+        assert.equal(page.el('q-emoji').textContent, q.emoji);
+        assert.equal(page.el('q-text').textContent, q.q);
+      });
+
+      it('draws a different question next and records both in the anti-repeat history', () => {
+        const page = load();
+        startGame(page);
+        const first = plain(page.get('currentQuestion'));
+        page.call('spawnNextStairOptions');
+        const second = plain(page.get('currentQuestion'));
+        assert.notEqual(second.id, first.id);
+        assert.equal(page.get('questionPickSeq'), 2);
+        assert.equal(page.get('questionStats.size'), 2);
         assert.equal(page.el('q-text').textContent, second.q);
       });
 
-      it('reshuffles and restarts when the pool is exhausted', () => {
+      it('does not crash when the pool is empty', () => {
         const page = load();
         startGame(page);
-        page.eval('activePool = [QUESTION_BANK[0]]; currentQIndex = 1;');
+        const before = page.el('q-text').textContent;
+        page.eval('activePool = [];');
+        assert.doesNotThrow(() => page.call('spawnNextStairOptions'));
+        assert.equal(page.el('q-text').textContent, before);
+      });
+
+      it('keeps serving the same question when the pool has only one item', () => {
+        const page = load();
+        startGame(page);
+        page.eval('activePool = [QUESTION_BANK[0]];');
+        page.call('spawnNextStairOptions');
         page.call('spawnNextStairOptions');
         assert.equal(page.get('activePool.length'), 1);
-        assert.equal(page.get('currentQIndex'), 1);
+        assert.equal(page.get('questionPickSeq'), 3);
         assert.equal(page.el('q-text').textContent, plain(page.get('QUESTION_BANK[0]')).q);
       });
 
@@ -526,6 +545,79 @@ for (const file of GAME_FILES) {
         page.call('spawnNextStairOptions');
         assert.equal(page.get('leftOptionPlat.level'), 6);
         assert.equal(page.get('rightOptionPlat.level'), 6);
+      });
+    });
+
+    // ------------------------------------------------------------------
+    // 7b. Anti-repeat question selection
+    // ------------------------------------------------------------------
+    describe('anti-repeat question selection', () => {
+      it('gives an unseen question a much higher weight than a seen one', () => {
+        const page = load();
+        page.eval('questionStats.clear(); questionPickSeq = 0;');
+        page.call('noteQuestionShown', page.get('QUESTION_BANK[0]'));
+        const seen = page.call('questionWeight', page.get('QUESTION_BANK[0]'));
+        const unseen = page.call('questionWeight', page.get('QUESTION_BANK[1]'));
+        assert.equal(unseen, 1);
+        assert.ok(seen < 0.01, `seen weight should be tiny, got ${seen}`);
+      });
+
+      it('applies a cooldown window and recovers the weight afterwards', () => {
+        const page = load();
+        page.eval('questionStats.clear(); questionPickSeq = 0;');
+        page.call('noteQuestionShown', page.get('QUESTION_BANK[0]'));
+        const recent = page.call('questionWeight', page.get('QUESTION_BANK[0]'));
+        page.eval('questionPickSeq += QUESTION_RECENT_WINDOW;');
+        const recovered = page.call('questionWeight', page.get('QUESTION_BANK[0]'));
+        assert.ok(recovered > recent * 10, `recovered ${recovered} should be much larger than ${recent}`);
+        assert.ok(recovered < 0.1, `recovered weight should stay below an unseen question, got ${recovered}`);
+      });
+
+      it('lowers the weight further each time the same question appears', () => {
+        const page = load();
+        page.eval('questionStats.clear(); questionPickSeq = 0;');
+        page.call('noteQuestionShown', page.get('QUESTION_BANK[0]'));
+        page.eval('questionPickSeq += QUESTION_RECENT_WINDOW;');
+        const once = page.call('questionWeight', page.get('QUESTION_BANK[0]'));
+        page.call('noteQuestionShown', page.get('QUESTION_BANK[0]'));
+        page.eval('questionPickSeq += QUESTION_RECENT_WINDOW;');
+        const twice = page.call('questionWeight', page.get('QUESTION_BANK[0]'));
+        assert.ok(twice < once, `twice ${twice} should be lower than once ${once}`);
+      });
+
+      it('never repeats a question on the very next stair', () => {
+        const page = load();
+        startGame(page);
+        const ids = [];
+        for (let i = 0; i < 30; i++) {
+          page.call('spawnNextStairOptions');
+          ids.push(plain(page.get('currentQuestion')).id);
+        }
+        for (let i = 1; i < ids.length; i++) {
+          assert.notEqual(ids[i], ids[i - 1], `question ${ids[i]} repeated immediately at draw ${i}`);
+        }
+      });
+
+      it('still surfaces every question over a long session', () => {
+        const page = load();
+        startGame(page);
+        const seen = new Set();
+        for (let i = 0; i < 800; i++) {
+          page.call('spawnNextStairOptions');
+          seen.add(plain(page.get('currentQuestion')).id);
+        }
+        assert.equal(seen.size, 50);
+      });
+
+      it('keeps the seen history across startGame so a rematch prefers fresh questions', () => {
+        const page = load();
+        startGame(page);
+        for (let i = 0; i < 10; i++) page.call('spawnNextStairOptions');
+        const afterFirst = page.get('questionPickSeq');
+        assert.equal(afterFirst, 11);
+        startGame(page);
+        assert.equal(page.get('questionPickSeq'), afterFirst + 1);
+        assert.ok(page.get('questionStats.size') >= 10);
       });
     });
 
@@ -668,11 +760,11 @@ for (const file of GAME_FILES) {
         landCorrect(page);
         page.advance(549);
         assert.equal(page.get('star.state'), 'celebrating');
-        assert.equal(page.get('currentQIndex'), 1);
+        assert.equal(page.get('questionPickSeq'), 1);
         page.advance(1);
         assert.equal(page.get('star.state'), 'idle');
         assert.equal(page.get('star.expression'), 'happy');
-        assert.equal(page.get('currentQIndex'), 2);
+        assert.equal(page.get('questionPickSeq'), 2);
         assert.equal(page.el('q-counter').textContent, 'TANGGA 2');
       });
 
@@ -683,11 +775,26 @@ for (const file of GAME_FILES) {
         page.eval('gameRunning = false;');
         page.advance(550);
         assert.equal(page.get('star.state'), 'celebrating');
-        assert.equal(page.get('currentQIndex'), 1);
+        assert.equal(page.get('questionPickSeq'), 1);
       });
     });
 
     describe('onLandOnPlatform() — wrong answer', () => {
+      const climb = (page, times = 1) => {
+        for (let i = 0; i < times; i++) {
+          const left = plain(page.get('leftOptionPlat'));
+          page.call('onLandOnPlatform', page.get(left.isCorrect ? 'leftOptionPlat' : 'rightOptionPlat'));
+          page.advance(550);
+        }
+      };
+
+      const landWrong = (page) => {
+        const left = plain(page.get('leftOptionPlat'));
+        const wrong = page.get(left.isCorrect ? 'rightOptionPlat' : 'leftOptionPlat');
+        page.call('onLandOnPlatform', wrong);
+        page.advance(900);
+      };
+
       it('breaks the platform, resets the streak and falls', () => {
         const page = load();
         startGame(page);
@@ -697,7 +804,7 @@ for (const file of GAME_FILES) {
         const wrong = plain(page.get(wrongSide));
         page.call('onLandOnPlatform', page.get(wrongSide));
 
-        assert.equal(page.get('score'), 300);
+        assert.equal(page.get('score'), 150);
         assert.equal(page.get('floorLevel'), 0);
         assert.equal(page.get('streak'), 0);
         assert.equal(page.get('star.state'), 'falling');
@@ -706,7 +813,22 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('currentBasePlat.status'), 'correct');
         assert.equal(page.get(wrongSide + '.status'), 'wrong');
         assert.equal(page.get(wrongSide + '.broken'), true);
-        assert.equal(page.el('score-val').textContent, 300);
+        assert.equal(page.el('score-val').textContent, 150);
+        const penaltyTexts = plain(page.get('floatingTexts')).filter((t) => t.text.includes('POIN'));
+        assert.deepEqual(penaltyTexts.map((t) => t.text), ['-150 POIN']);
+      });
+
+      it('never drops the score below 100 (and leaves 0 untouched)', () => {
+        const page = load();
+        startGame(page);
+        page.eval('score = 100;');
+        page.call('onLandOnPlatform', page.get(page.get('leftOptionPlat.isCorrect') ? 'rightOptionPlat' : 'leftOptionPlat'));
+        assert.equal(page.get('score'), 100);
+
+        const zero = load();
+        startGame(zero);
+        zero.call('onLandOnPlatform', zero.get(zero.get('leftOptionPlat.isCorrect') ? 'rightOptionPlat' : 'leftOptionPlat'));
+        assert.equal(zero.get('score'), 0);
       });
 
       it('spawns red confetti and a break label', () => {
@@ -740,7 +862,59 @@ for (const file of GAME_FILES) {
         assert.equal(page.get('star.rotation'), 0);
         assert.equal(page.get('star.scaleX'), 1.25);
         assert.equal(page.get('star.scaleY'), 0.75);
-        assert.equal(page.get('currentQIndex'), 2);
+        assert.equal(page.get('questionPickSeq'), 2);
+      });
+
+      it('drops exactly one floor (100 m) when wrong above the ground', () => {
+        const page = load();
+        startGame(page);
+        climb(page, 2);
+        const level1 = plain(page.get('letitedPlatforms[1]'));
+        const scoreBefore = page.get('score');
+
+        const left = plain(page.get('leftOptionPlat'));
+        const wrongSide = left.isCorrect ? 'rightOptionPlat' : 'leftOptionPlat';
+        page.call('onLandOnPlatform', page.get(wrongSide));
+        assert.equal(page.get('floorLevel'), 2, 'altitude must not change until the fall finishes');
+
+        page.advance(900);
+        assert.equal(page.get('floorLevel'), 1);
+        assert.equal(page.get('score'), Math.max(100, Math.floor(scoreBefore * 0.5)));
+        assert.equal(page.get('streak'), 0);
+        assert.equal(page.get('letitedPlatforms.length'), 2);
+        assert.deepEqual(plain(page.get('currentBasePlat')), level1);
+        assert.equal(page.get('star.wx'), level1.wx);
+        assert.equal(page.get('star.wy'), level1.wy - 48);
+        assert.equal(page.get('star.state'), 'idle');
+        assert.equal(page.el('alt-val').textContent, '100m');
+        assert.equal(page.el('q-counter').textContent, 'TANGGA 2');
+        assert.equal(page.get('cam.targetX'), level1.wx);
+        assert.equal(page.get('cam.targetY'), level1.wy);
+        const dropLabels = plain(page.get('floatingTexts')).filter((t) => t.text.includes('TURUN'));
+        assert.equal(dropLabels.length, 1);
+        assert.match(dropLabels[0].text, /TURUN 100 m/);
+      });
+
+      it('falls one floor at a time until the ground and stops there', () => {
+        const page = load();
+        startGame(page);
+        climb(page, 2);
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 1);
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 0);
+        assert.equal(page.get('star.wx'), 0);
+        assert.equal(page.get('star.wy'), -48);
+        assert.equal(page.get('letitedPlatforms.length'), 1);
+        assert.equal(page.get('currentBasePlat.isStart'), true);
+        assert.equal(page.el('alt-val').textContent, '0m');
+        assert.equal(page.el('q-counter').textContent, 'TANGGA 1');
+
+        landWrong(page);
+        assert.equal(page.get('floorLevel'), 0, 'a wrong answer at ground must not go negative');
+        assert.equal(page.get('currentBasePlat.isStart'), true);
       });
 
       it('does not reset when the game has stopped', () => {
@@ -752,7 +926,7 @@ for (const file of GAME_FILES) {
         page.eval('gameRunning = false;');
         page.advance(900);
         assert.equal(page.get('star.state'), 'falling');
-        assert.equal(page.get('currentQIndex'), 1);
+        assert.equal(page.get('questionPickSeq'), 1);
       });
     });
 
